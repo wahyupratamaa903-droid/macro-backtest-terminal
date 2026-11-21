@@ -1,0 +1,4 @@
+#!/data/data/com.termux/files/usr/bin/bash
+git add .
+git commit -m "${1:-Update macro backtest terminal}"
+git push -u origin main

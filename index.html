@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+  <title>MACRO BACKTEST TERMINAL — Historical News &amp; Pips Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+  <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+  <div id="alert-box" class="fixed top-3 right-3 z-50 space-y-2" style="max-width:300px;pointer-events:none"></div>
+
+  <header class="sticky top-0 z-40 glass border-b border-slate-800/60">
+    <div class="max-w-6xl mx-auto px-3 py-2.5 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">
+          <i class="fas fa-database text-sm text-sky-400"></i>
+        </div>
+        <div>
+          <h1 class="text-xs font-black grad-cyan leading-tight">MACRO BACKTEST TERMINAL</h1>
+          <p class="text-[8px] text-slate-400 font-mono">Federal Reserve (FRED) + Yahoo Finance OHLC</p>
+        </div>
+      </div>
+      <span id="archive-count" class="text-[9px] font-mono px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/25 text-sky-300">Memuat...</span>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-3 md:p-5 space-y-4">
+
+    <!-- TAB 1: ARSIP DATA NEWS HISTORIS (2015-2026) -->
+    <section id="tab-archive" class="tab-panel active space-y-3">
+      <div class="glass-card p-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-xs font-black grad-cyan"><i class="fas fa-calendar-check mr-1.5"></i>Arsip News Ekonomi USD (Sebelumnya • Ramalan • Sebenarnya)</h2>
+            <p id="archive-source-status" class="text-[9px] text-emerald-400 font-mono mt-0.5">Menghubungkan ke database resmi...</p>
+          </div>
+          <div class="flex gap-1.5 flex-wrap">
+            <button type="button" data-year-preset="2015-2020" class="chip-btn active">2015–2020</button>
+            <button type="button" data-year-preset="2022-2022" class="chip-btn">2022</button>
+            <button type="button" data-year-preset="2021-2025" class="chip-btn">2021–2025</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
+          <div>
+            <label class="text-[8px] text-slate-400 block mb-0.5">Dari Tahun</label>
+            <select id="flt-start-year" class="ctrl-in"></select>
+          </div>
+          <div>
+            <label class="text-[8px] text-slate-400 block mb-0.5">Sampai Tahun</label>
+            <select id="flt-end-year" class="ctrl-in"></select>
+          </div>
+          <div>
+            <label class="text-[8px] text-slate-400 block mb-0.5">Jenis Data News</label>
+            <select id="flt-indicator" class="ctrl-in">
+              <option value="ALL">Semua (NFP + CPI + Bunga)</option>
+              <option value="NFP">NFP (Non-Farm Payroll)</option>
+              <option value="CPI">CPI YoY (Inflasi AS)</option>
+              <option value="BUNGA">Suku Bunga (FOMC Rate)</option>
+              <option value="UNRATE">Unemployment Rate</option>
+              <option value="RETAIL">Retail Sales MoM</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[8px] text-slate-400 block mb-0.5">Filter Bulan</label>
+            <select id="flt-month" class="ctrl-in"></select>
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="text-[8px] text-slate-400 block mb-0.5">Arah Data</label>
+            <select id="flt-direction" class="ctrl-in">
+              <option value="ALL">Semua Hasil</option>
+              <option value="HIGHER">Aktual &gt; Sebelumnya</option>
+              <option value="LOWER">Aktual &lt; Sebelumnya</option>
+              <option value="SAME">Tetap / Hold</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button type="button" id="btn-fetch-news" class="bg-gradient-to-r from-sky-500 to-blue-600 px-3.5 py-2 rounded-xl text-xs font-bold text-white">
+            <i class="fas fa-search mr-1"></i>Tarik Data Historis
+          </button>
+          <button type="button" id="btn-import-news-csv" class="bg-amber-500/15 border border-amber-500/35 px-3 py-2 rounded-xl text-xs font-bold text-amber-300">
+            <i class="fas fa-file-import mr-1"></i>Impor CSV
+          </button>
+          <button type="button" id="btn-export-news-csv" class="bg-emerald-500/15 border border-emerald-500/35 px-3 py-2 rounded-xl text-xs font-bold text-emerald-300">
+            <i class="fas fa-file-export mr-1"></i>Ekspor CSV
+          </button>
+          <input type="file" id="input-import-csv" accept=".csv,text/csv" class="hidden">
+        </div>
+        <p class="text-[9px] text-slate-400 mt-2">
+          <i class="fas fa-info-circle text-amber-400 mr-1"></i>Kolom <b>RAMALAN</b> dapat langsung diketik/diedit di tabel (otomatis tersimpan) atau dilengkapi sekaligus lewat tombol <b>Impor CSV</b>.
+        </p>
+      </div>
+
+      <div class="glass-card overflow-hidden">
+        <div class="overflow-x-auto max-h-[65vh]">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tahun</th>
+                <th>Bulan</th>
+                <th class="text-center">Tgl</th>
+                <th>Data</th>
+                <th class="text-right">Sebelumnya</th>
+                <th class="text-right text-amber-400">Ramalan (Edit)</th>
+                <th class="text-right">Sebenarnya</th>
+                <th>Perubahan</th>
+              </tr>
+            </thead>
+            <tbody id="archive-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: MENU KHUSUS BACKTEST HARGA & PIPS -->
+    <section id="tab-backtest" class="tab-panel space-y-3">
+      <div class="glass-card p-4">
+        <div class="mb-3">
+          <h2 class="text-xs font-black grad-emerald"><i class="fas fa-chart-bar mr-1.5"></i>Backtest Reaksi Harga &amp; Pips pada Hari Rilis Berita</h2>
+          <p id="bt-status-text" class="text-[9px] text-slate-400 font-mono mt-0.5">Mencocokkan tanggal rilis berita terfilter dengan candle OHLC harian asli</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+          <div>
+            <label class="text-[8px] text-slate-400 block mb-0.5">Pilih Pair Utama</label>
+            <select id="bt-pair-select" class="ctrl-in">
+              <option value="XAU/USD" selected>XAU/USD (Gold)</option>
+              <option value="EUR/USD">EUR/USD</option>
+              <option value="GBP/USD">GBP/USD</option>
+              <option value="USD/JPY">USD/JPY</option>
+              <option value="AUD/USD">AUD/USD</option>
+              <option value="USD/CAD">USD/CAD</option>
+              <option value="DXY">DXY (US Dollar Index)</option>
+              <option value="BTC/USD">BTC/USD</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[8px] text-slate-400 block mb-0.5">Atau Ketik Simbol Kustom</label>
+            <input type="text" id="bt-custom-pair" placeholder="Contoh: GBP/JPY, XAG/USD..." class="ctrl-in">
+          </div>
+          <div class="flex items-end gap-2">
+            <button type="button" id="btn-run-backtest" class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 py-2 px-3 rounded-xl text-xs font-bold text-white">
+              <i class="fas fa-play mr-1"></i>Jalankan Backtest Pips
+            </button>
+            <button type="button" id="btn-export-backtest-csv" class="bg-amber-500/20 border border-amber-500/35 py-2 px-3 rounded-xl text-xs font-bold text-amber-300" title="Ekspor Hasil Backtest ke CSV">
+              <i class="fas fa-download"></i> CSV
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="bt-stats-cards" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+
+      <div class="glass-card overflow-hidden">
+        <div class="overflow-x-auto max-h-[60vh]">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tanggal Rilis</th>
+                <th>News</th>
+                <th>Rilis Data (Prev / Fcst / Act)</th>
+                <th class="text-right">Open</th>
+                <th class="text-right">Close</th>
+                <th class="text-right">Net Pips (O→C)</th>
+                <th class="text-right">Range (H-L)</th>
+              </tr>
+            </thead>
+            <tbody id="bt-tbody">
+              <tr><td colspan="7" class="text-center py-6 text-slate-400">Klik <b>Jalankan Backtest Pips</b> untuk menghitung pergerakan pips pada setiap tanggal rilis berita.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: AI BACKTEST STRATEGI -->
+    <section id="tab-ai" class="tab-panel space-y-3">
+      <div class="glass-card p-4">
+        <h2 class="text-xs font-black grad-amber mb-1"><i class="fas fa-brain mr-1.5"></i>AI Quantitative Backtest Analyst</h2>
+        <p class="text-[9px] text-slate-400 mb-3">Menganalisis pola statistik dari tabel Arsip News &amp; Hasil Backtest Pips yang sedang aktif.</p>
+
+        <div class="flex gap-1.5 overflow-x-auto pb-2 mb-3">
+          <button type="button" class="chip-btn" data-bt-qp="Hitung berapa persen harga bergerak searah fundamental ketika Aktual lebih tinggi dari Sebelumnya pada dataset ini.">📊 Probabilitas Arah Rilis</button>
+          <button type="button" class="chip-btn" data-bt-qp="Berita mana antara NFP, CPI, dan Suku Bunga yang menghasilkan lonjakan pips (Range) terbesar dan paling konsisten?">⚡ Berita Paling Volatil</button>
+          <button type="button" class="chip-btn" data-bt-qp="Buatkan aturan entry, SL, dan TP berbasis data historis ini agar terhindar dari whipsaw saat rilis news.">🛡️ Aturan Strategi News</button>
+        </div>
+
+        <div id="ai-bt-chat" class="space-y-2.5 max-h-[48vh] overflow-y-auto mb-3 p-1">
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-xs text-slate-300">
+            Jalankan filter di <b>Arsip News</b> atau hitung pergerakan di <b>Backtest Pips</b> terlebih dahulu, lalu pilih tombol analisis di atas atau ketik pertanyaanmu sendiri.
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <input type="text" id="ai-bt-input" placeholder="Tanya pola historis NFP/CPI/Bunga & pips..." class="ctrl-in flex-grow">
+          <button type="button" id="btn-ai-bt-send" class="bg-sky-500 px-4 py-2 rounded-xl text-xs font-bold text-slate-950 shrink-0">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: TRANSPARANSI SUMBER & PENGATURAN CSV / API -->
+    <section id="tab-settings" class="tab-panel space-y-3">
+      <div class="glass-card p-4 space-y-3 text-xs">
+        <h2 class="text-xs font-black grad-cyan"><i class="fas fa-shield-alt mr-1.5"></i>Transparansi Sumber Data Resmi</h2>
+        <div class="space-y-2 text-[11px] text-slate-300 leading-relaxed">
+          <p>1. <b>Data Makro Historis (2010–2026):</b> Ditarik langsung dari server resmi <b>Federal Reserve Bank of St. Louis (FRED)</b> menggunakan kode seri institusional: <code>PAYEMS</code> (Non-Farm Payroll), <code>CPIAUCSL</code> (Consumer Price Index), <code>DFEDTARU</code> (Federal Funds Target Rate), <code>UNRATE</code> (Unemployment Rate), dan <code>RSAFS</code> (Retail Sales).</p>
+          <p>2. <b>Data Harga Historis (OHLC Pips):</b> Ditarik langsung dari arsip harian <b>Yahoo Finance Institutional Chart API</b> sesuai tanggal rilis berita.</p>
+          <p>3. <b>Kolom Ramalan (Forecast):</b> Karena FRED hanya merilis data resmi pemerintah (<i>Sebelumnya</i> &amp; <i>Sebenarnya</i>), kolom <b>Ramalan</b> tidak pernah diisi angka acak. Kamu bisa mengisinya langsung di tabel atau mengimpornya melalui file CSV.</p>
+        </div>
+
+        <div class="pt-2 border-t border-slate-800">
+          <button type="button" id="btn-download-template-csv" class="bg-emerald-500/15 border border-emerald-500/35 px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-300">
+            <i class="fas fa-file-csv mr-1.5"></i>Unduh Contoh Template CSV Impor
+          </button>
+        </div>
+
+        <div class="pt-2 border-t border-slate-800 space-y-2">
+          <label class="block text-[10px] font-bold text-amber-400">OpenRouter API Key (Opsional untuk Tab AI Strategi)</label>
+          <div class="flex gap-2">
+            <input type="password" id="set-openrouter-key" placeholder="sk-or-v1-..." class="ctrl-in">
+            <button type="button" id="btn-save-settings" class="bg-amber-500 px-4 py-2 rounded-xl text-xs font-bold text-slate-950 shrink-0">Simpan</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="bottom-nav">
+    <div class="max-w-6xl mx-auto flex">
+      <button class="nav-tab-btn active" data-tab="archive"><i class="fas fa-table"></i><span>Arsip News</span></button>
+      <button class="nav-tab-btn" data-tab="backtest"><i class="fas fa-chart-line"></i><span>Backtest Pips</span></button>
+      <button class="nav-tab-btn" data-tab="ai"><i class="fas fa-brain"></i><span>AI Strategi</span></button>
+      <button class="nav-tab-btn" data-tab="settings"><i class="fas fa-sliders-h"></i><span>Sumber &amp; CSV</span></button>
+    </div>
+  </nav>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
