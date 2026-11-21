@@ -1,4 +1,3 @@
-// Modul Khusus Provider Cadangan FXStreet Economic Calendar API
 import { toWibParts, formatCalValue, classifyEventCode } from './classifier.js';
 
 export async function fetchFxStreetYear(year) {
@@ -27,15 +26,16 @@ export async function fetchFxStreetYear(year) {
     const wib = toWibParts(r.dateUtc);
     if (!wib || wib.year !== year) continue;
 
-    const title = (r.name || '').trim();
-    const code = classifyEventCode(title, '');
+    const matched = classifyEventCode(r.name, '');
+    if (!matched) continue;
+
     const unit = r.unit || '';
     const prevStr = formatCalValue(r.previous, unit, '');
     const fcstStr = r.consensus !== null && r.consensus !== undefined ? formatCalValue(r.consensus, unit, '') : null;
     const actStr = formatCalValue(r.actual, unit, '');
 
     normalized.push({
-      id: `FXS_${r.id || `${code}_${wib.dateISO}_${wib.timeWIB}`}`,
+      id: `FXS_${r.id || `${matched.code}_${wib.dateISO}_${wib.timeWIB}`}`,
       dateISO: wib.dateISO,
       timeWIB: wib.timeWIB,
       year: wib.year,
@@ -44,8 +44,8 @@ export async function fetchFxStreetYear(year) {
       day: wib.day,
       currency: r.currencyCode || 'USD',
       importance: r.volatility === 'HIGH' ? 1 : 0,
-      code,
-      event: title,
+      code: matched.code,
+      event: matched.display,
       previous: prevStr,
       previousNum: r.previous != null ? Number(r.previous) : null,
       forecast: fcstStr,

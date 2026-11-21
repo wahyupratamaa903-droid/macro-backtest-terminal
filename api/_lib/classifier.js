@@ -1,4 +1,3 @@
-// Modul Khusus Klasifikasi Nama Berita, Konversi Jam WIB & Format Angka
 export const NAMA_BULAN = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
@@ -51,46 +50,57 @@ export function formatCalValue(val, unit = '', scale = '') {
 }
 
 export function classifyEventCode(titleRaw, indicatorRaw = '') {
-  const t = `${titleRaw || ''} ${indicatorRaw || ''}`.toLowerCase().trim();
+  const title = (titleRaw || '').trim();
+  const ind = (indicatorRaw || '').trim();
+  const t = `${title} ${ind}`.toLowerCase();
 
-  // 1. Non-Farm Payrolls (NFP)
-  if ((t.includes('non-farm') || t.includes('non farm') || t.includes('nonfarm')) &&
-      (t.includes('payroll') || t.includes('employment change')) &&
-      !t.includes('adp') && !t.includes('private')) {
-    return 'NFP';
+  // 1. NFP : Non-Farm Employment Change
+  const isNfpName = (t.includes('non-farm') || t.includes('non farm') || t.includes('nonfarm')) &&
+                    (t.includes('payroll') || t.includes('employment change'));
+  const nfpExclude = ['adp', 'private', 'manufacturing', 'government', 'revision', 'preliminary'];
+  if (isNfpName && !nfpExclude.some(ex => t.includes(ex))) {
+    return { code: 'NFP', display: 'Non-Farm Employment Change' };
   }
 
-  // 2. Suku Bunga The Fed (Fed Interest Rate Decision / Federal Funds Rate)
-  if ((t.includes('interest rate') || t.includes('fed funds rate') || t.includes('federal funds rate') || t.includes('fomc rate') || t.includes('rate decision')) &&
-      !t.includes('projection') && !t.includes('longer run') && !t.includes('mortgage') &&
-      !t.includes('prime') && !t.includes('deposit') && !t.includes('30-year') && !t.includes('10-year')) {
-    return 'BUNGA';
-  }
-
-  // 3. CPI / Inflation Rate (TradingView memakai nama "Inflation Rate MoM" & "Inflation Rate YoY")
+  // 2. CPI : CPI y/y (Ketat hanya CPI YoY, bukan m/m dan bukan Core)
   const isCpiFamily = /\bcpi\b/.test(t) || t.includes('consumer price index') || t.includes('inflation rate');
-  if (isCpiFamily && !t.includes('core') && !t.includes('ex food') && !t.includes('nsa') && !t.includes('index s.a') && !t.includes('expectation')) {
-    if (t.includes('y/y') || t.includes('yoy') || t.includes('year')) return 'CPI_YOY';
-    if (t.includes('m/m') || t.includes('mom') || t.includes('month')) return 'CPI';
+  const isYoy = t.includes('y/y') || t.includes('yoy') || t.includes('(yoy)') || t.includes('year over year');
+  const cpiExclude = ['core', 'ex food', 'ex-food', 'nsa', 'non-seasonally', 'index s.a', 'expectation', 'median', 'trimmed', 'm/m', 'mom', 'q/q', 'qoq'];
+  if (isCpiFamily && isYoy && !cpiExclude.some(ex => t.includes(ex))) {
+    return { code: 'CPI', display: 'CPI y/y' };
   }
 
-  // 4. Unemployment Rate
-  if (t.includes('unemployment rate') && !t.includes('claims')) {
-    return 'UNRATE';
+  // Opsional CPI m/m (hanya jika diminta khusus)
+  const isMom = t.includes('m/m') || t.includes('mom') || t.includes('(mom)');
+  if (isCpiFamily && isMom && !['core', 'ex food', 'ex-food', 'nsa', 'expectation', 'y/y', 'yoy'].some(ex => t.includes(ex))) {
+    return { code: 'CPI_MOM', display: 'CPI m/m' };
   }
 
-  // 5. Retail Sales m/m
-  if (t.includes('retail sales') && !t.includes('core') && !t.includes('ex ') && !t.includes('control') &&
-      (t.includes('m/m') || t.includes('mom'))) {
-    return 'RETAIL';
+  // 3. SUKU BUNGA : Fed Funds Rate
+  const isRateName =
+    t.includes('fed interest rate decision') ||
+    t.includes('federal funds rate') ||
+    t.includes('fed funds rate') ||
+    t.includes('fomc interest rate decision') ||
+    title.toLowerCase() === 'interest rate decision' ||
+    (ind.toLowerCase() === 'interest rate' && title.toLowerCase().includes('decision'));
+  const rateExclude = ['projection', 'longer run', '1st yr', '2nd yr', '3rd yr', 'current', 'statement', 'minutes', 'speech', 'speaks', 'mortgage', 'prime', 'deposit', 'bill', 'note', 'bond', 'effective', 'sofr'];
+  if (isRateName && !rateExclude.some(ex => t.includes(ex))) {
+    return { code: 'BUNGA', display: 'Fed Funds Rate' };
   }
 
-  // 6. GDP q/q
+  // Indikator sekunder (hanya muncul jika diminta khusus di dropdown)
+  if (t.includes('unemployment rate') && !['claims', 'long term', 'u-6'].some(ex => t.includes(ex))) {
+    return { code: 'UNRATE', display: 'Unemployment Rate' };
+  }
+  if (t.includes('retail sales') && isMom && !['core', 'ex ', 'control', 'y/y', 'yoy'].some(ex => t.includes(ex))) {
+    return { code: 'RETAIL', display: 'Retail Sales m/m' };
+  }
   if ((t.includes('gdp') || t.includes('gross domestic product')) &&
-      (t.includes('q/q') || t.includes('qoq') || t.includes('growth rate') || t.includes('annualized')) &&
-      !t.includes('price index') && !t.includes('deflator')) {
-    return 'GDP';
+      (t.includes('q/q') || t.includes('qoq') || t.includes('growth rate')) &&
+      !['price index', 'deflator', 'y/y', 'yoy'].some(ex => t.includes(ex))) {
+    return { code: 'GDP', display: 'GDP q/q' };
   }
 
-  return 'OTHER';
+  return null;
 }

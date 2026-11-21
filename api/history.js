@@ -1,4 +1,3 @@
-// Endpoint Utama /api/history (Hanya bertugas menggabungkan provider & menyaring filter)
 import { fetchTradingViewYear } from './_lib/tradingview.js';
 import { fetchFxStreetYear } from './_lib/fxstreet.js';
 
@@ -26,14 +25,13 @@ export default async function handler(req, res) {
       rawEvents = perYear.flat();
     }
 
+    // Ketat: Default (ALL) hanya menampilkan NFP, CPI (y/y), dan SUKU BUNGA (Fed Funds Rate)
     const coreSet = new Set(['NFP', 'CPI', 'BUNGA']);
     let filtered = rawEvents.filter(ev => {
-      if (indicator === 'ALL_HIGH') return ev.importance >= 1;
       if (indicator === 'ALL') return coreSet.has(ev.code);
       return ev.code === indicator;
     });
 
-    // Deduplikasi berdasarkan tanggal & kode berita agar tidak ganda
     const seen = new Set();
     filtered = filtered.filter(ev => {
       const key = `${ev.dateISO}_${ev.code}`;

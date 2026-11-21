@@ -2,21 +2,26 @@ import { STATE, saveForecastValue, saveImportedEvents, emitEvent } from '../core
 import { BULAN_LIST, esc, toast } from '../core/utils.js';
 import { parseImportedCSV, downloadCSV } from '../core/csv.js';
 
-function getBadgeClass(code) {
-  if (code === 'NFP') return 'tag-nfp';
-  if (code === 'CPI' || code === 'CPI_YOY') return 'tag-cpi';
-  if (code === 'BUNGA') return 'tag-bunga';
-  return 'tag-other';
+function getBadgeInfo(code) {
+  if (code === 'NFP') return { cls: 'tag-nfp', label: 'NFP' };
+  if (code === 'CPI') return { cls: 'tag-cpi', label: 'CPI' };
+  if (code === 'BUNGA') return { cls: 'tag-bunga', label: 'SUKU BUNGA' };
+  return { cls: 'tag-other', label: code };
 }
 
 export function applyNewsFilters() {
+  const coreSet = new Set(['NFP', 'CPI', 'BUNGA']);
   const mergedMap = new Map();
-  STATE.rawEvents.forEach(ev => mergedMap.set(ev.id, { ...ev }));
+
+  STATE.rawEvents.forEach(ev => {
+    const allowed = STATE.indicator === 'ALL' ? coreSet.has(ev.code) : ev.code === STATE.indicator;
+    if (allowed) mergedMap.set(ev.id, { ...ev });
+  });
+
   STATE.importedEvents.forEach(ev => {
     if (ev.year >= STATE.startYear && ev.year <= STATE.endYear) {
-      if (STATE.indicator === 'ALL' || STATE.indicator === 'ALL_HIGH' || ev.code === STATE.indicator) {
-        mergedMap.set(ev.id, { ...ev });
-      }
+      const allowed = STATE.indicator === 'ALL' ? coreSet.has(ev.code) : ev.code === STATE.indicator;
+      if (allowed) mergedMap.set(ev.id, { ...ev });
     }
   });
 
@@ -68,13 +73,15 @@ export function renderArchiveTable() {
       }
     }
 
+    const badge = getBadgeInfo(ev.code);
+
     return `
       <tr>
         <td class="font-mono text-slate-400">${ev.year}</td>
         <td class="font-semibold text-slate-200">${esc(ev.monthName)}</td>
         <td class="font-mono text-slate-200 text-center font-bold">${ev.day}</td>
         <td class="font-mono text-sky-400 text-[10px]">${esc(ev.timeWIB || '--:--')}</td>
-        <td><span class="px-2 py-0.5 rounded text-[9px] font-bold ${getBadgeClass(ev.code)}">${esc(ev.code)}</span> <span class="text-slate-300 ml-1">${esc(ev.event)}</span></td>
+        <td><span class="px-2 py-0.5 rounded text-[9px] font-bold ${badge.cls}">${esc(badge.label)}</span> <span class="text-slate-300 ml-1">${esc(ev.event)}</span></td>
         <td class="font-mono text-slate-300 text-right">${esc(ev.previous)}</td>
         <td class="text-right"><input type="text" data-fcst-id="${esc(ev.id)}" value="${esc(fcstVal)}" placeholder="-" class="fcst-input"></td>
         <td class="font-mono font-bold ${actColor} text-right">${esc(ev.actual)}</td>
@@ -141,15 +148,14 @@ export function initNewsArchive() {
 
   if (selInd) {
     selInd.innerHTML = `
-      <option value="ALL">Utama (NFP + CPI m/m + Bunga)</option>
-      <option value="NFP">NFP (Non-Farm Payrolls)</option>
-      <option value="CPI">CPI m/m (Inflasi Bulanan)</option>
-      <option value="CPI_YOY">CPI y/y (Inflasi Tahunan)</option>
-      <option value="BUNGA">Suku Bunga (Federal Funds Rate)</option>
-      <option value="UNRATE">Unemployment Rate</option>
-      <option value="RETAIL">Retail Sales m/m</option>
-      <option value="GDP">GDP q/q</option>
-      <option value="ALL_HIGH">Semua Berita High-Impact USD</option>
+      <option value="ALL">Utama (NFP + CPI y/y + Suku Bunga)</option>
+      <option value="NFP">NFP — Non-Farm Employment Change</option>
+      <option value="CPI">CPI — CPI y/y</option>
+      <option value="BUNGA">SUKU BUNGA — Fed Funds Rate</option>
+      <option value="CPI_MOM">CPI m/m (Jika Diminta)</option>
+      <option value="UNRATE">Unemployment Rate (Jika Diminta)</option>
+      <option value="RETAIL">Retail Sales m/m (Jika Diminta)</option>
+      <option value="GDP">GDP q/q (Jika Diminta)</option>
     `;
   }
 
@@ -158,13 +164,18 @@ export function initNewsArchive() {
       BULAN_LIST.map((b, i) => `<option value="${i + 1}">${b}</option>`).join('');
   }
 
-  document.getElementById('btn-fetch-news')?.addEventListener('click', () => {
+  const triggerReload = () => {
     STATE.startYear = parseInt(selStart.value, 10);
     STATE.endYear = parseInt(selEnd.value, 10);
     if (STATE.endYear < STATE.startYear) { STATE.endYear = STATE.startYear; selEnd.value = String(STATE.endYear); }
     STATE.indicator = selInd.value;
     fetchHistoricalNews();
-  });
+  };
+
+  document.getElementById('btn-fetch-news')?.addEventListener('click', triggerReload);
+  selInd?.addEventListener('change', triggerReload);
+  selStart?.addEventListener('change', triggerReload);
+  selEnd?.addEventListener('change', triggerReload);
 
   document.querySelectorAll('[data-year-preset]').forEach(btn => {
     btn.addEventListener('click', () => {

@@ -1,4 +1,3 @@
-// Modul Khusus Provider TradingView Economic Calendar API
 import { toWibParts, formatCalValue, classifyEventCode } from './classifier.js';
 
 export async function fetchTradingViewYear(year) {
@@ -28,14 +27,15 @@ export async function fetchTradingViewYear(year) {
     const wib = toWibParts(r.date);
     if (!wib || wib.year !== year) continue;
 
-    const title = (r.title || r.indicator || '').trim();
-    const code = classifyEventCode(r.title, r.indicator);
+    const matched = classifyEventCode(r.title, r.indicator);
+    if (!matched) continue;
+
     const prevStr = formatCalValue(r.previous, r.unit, r.scale);
     const fcstStr = r.forecast !== null && r.forecast !== undefined ? formatCalValue(r.forecast, r.unit, r.scale) : null;
     const actStr = formatCalValue(r.actual, r.unit, r.scale);
 
     normalized.push({
-      id: `TV_${r.id || `${code}_${wib.dateISO}_${wib.timeWIB}`}`,
+      id: `TV_${r.id || `${matched.code}_${wib.dateISO}_${wib.timeWIB}`}`,
       dateISO: wib.dateISO,
       timeWIB: wib.timeWIB,
       year: wib.year,
@@ -44,8 +44,8 @@ export async function fetchTradingViewYear(year) {
       day: wib.day,
       currency: r.currency || 'USD',
       importance: r.importance ?? 0,
-      code,
-      event: title,
+      code: matched.code,
+      event: matched.display,
       previous: prevStr,
       previousNum: r.previous != null ? Number(r.previous) : null,
       forecast: fcstStr,
