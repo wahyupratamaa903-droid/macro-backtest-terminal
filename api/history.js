@@ -3,230 +3,373 @@ const NAMA_BULAN = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
-function getFirstFriday(year, monthIndex0) {
-  const d = new Date(Date.UTC(year, monthIndex0, 1));
-  const day = d.getUTCDay();
-  const diff = (5 - day + 7) % 7;
-  d.setUTCDate(1 + diff);
-  return d;
-}
-
-function getReleaseBusinessDay(year, monthIndex0, targetDay) {
-  const d = new Date(Date.UTC(year, monthIndex0, targetDay));
-  const dow = d.getUTCDay();
-  if (dow === 0) d.setUTCDate(targetDay + 1);
-  if (dow === 6) d.setUTCDate(targetDay - 1);
-  return d;
-}
-
-function prevBusinessDay(dateObj) {
-  const d = new Date(dateObj.getTime());
-  d.setUTCDate(d.getUTCDate() - 1);
-  if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() - 2);
-  if (d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
-  return d;
-}
+const EN_MONTHS = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12
+};
 
 function fmtISO(d) {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchFredCSV(seriesId) {
-  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MacroBacktestTerminal/1.0)' }
+function addDaysISO(isoDate, days) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return fmtISO(d);
+}
+
+// Aturan cadangan resmi BLS jika halaman kalender HTML tidak merespons
+function getBlsNfpFallback(year, month1) {
+  const d = new Date(Date.UTC(year, month1 - 1, 1));
+  const diff = (5 - d.getUTCDay() + 7) % 7;
+  const firstFri = new Date(Date.UTC(year, month1 - 1, 1 + diff));
+  const dayNum = firstFri.getUTCDate();
+
+  // Jika 1 Jan jatuh Jumat (day=1) atau Kamis (day=2), BLS mengundur rilis ke Jumat ke-2
+  if (month1 === 1 && (dayNum === 1 || dayNum === 2)) {
+    firstFri.setUTCDate(dayNum + 7);
+  }
+  // Jika 4 Juli jatuh Sabtu (libur Jumat 3 Juli) atau Jumat (libur 4 Juli), maju ke Kamis
+  if (month1 === 7 && (dayNum === 3 || dayNum === 4)) {
+    firstFri.setUTCDate(dayNum - 1);
+  }
+  return fmtISO(firstFri);
+}
+
+function getBlsCpiFallback(year, month1) {
+  const d = new Date(Date.UTC(year, month1 - 1, 13));
+  const dow = d.getUTCDay();
+  if (dow === 0) d.setUTCDate(15); // Minggu -> Selasa
+  else if (dow === 1) d.setUTCDate(14); // Senin -> Selasa
+  else if (dow === 5) d.setUTCDate(12); // Jumat -> Kamis
+  else if (dow === 6) d.setUTCDate(11); // Sabtu -> Kamis
+  return fmtISO(d);
+}
+
+// 1. Tarik tanggal rilis resmi per tahun dari Kalender FRED (rid=50 NFP, rid=10 CPI, rid=9 Retail)
+async function fetchFredReleaseCalendar(rid, year) {
+  const byMonth = {};
+  try {
+    const url = `https://fred.stlouisfed.org/releases/calendar?rid=${rid}&y=${year}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    if (!res.ok) return byMonth;
+    const html = await res.text();
+    const plain = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+    // Cocokkan format ISO YYYY-MM-DD
+    const isoRe = new RegExp(`\\b(${year})-(\\d{2})-(\\d{2})\\b`, 'g');
+    let m;
+    while ((m = isoRe.exec(plain)) !== null) {
+      const mo = parseInt(m[2], 10);
+      if (mo >= 1 && mo <= 12 && !byMonth[mo]) {
+        byMonth[mo] = `${m[1]}-${m[2]}-${m[3]}`;
+      }
+    }
+
+    // Cocokkan format teks Inggris: "January 9, 2015"
+    const txtRe = new RegExp(`\\b(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{1,2}),\\s+(${year})\\b`, 'gi');
+    while ((m = txtRe.exec(plain)) !== null) {
+      const mo = EN_MONTHS[m[1].toLowerCase()];
+      const dy = String(parseInt(m[2], 10)).padStart(2, '0');
+      if (mo && !byMonth[mo]) {
+        byMonth[mo] = `${year}-${String(mo).padStart(2, '0')}-${dy}`;
+      }
+    }
+  } catch (e) {}
+  return byMonth;
+}
+
+// 2. Tarik tanggal keputusan FOMC resmi dari Federal Reserve
+async function fetchOfficialFomcDates(year) {
+  const dates = [];
+  const urls = year <= 2020
+    ? [`https://www.federalreserve.gov/monetarypolicy/fomchistorical${year}.htm`]
+    : ['https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm'];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+      if (!res.ok) continue;
+      const html = await res.text();
+      const plain = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+      // Pola pertemuan 2 hari: "January 27-28" atau lintas bulan "April 30-May 1"
+      const sameMonthRe = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\s*[-–]\s*(\d{1,2})\b/gi;
+      const crossMonthRe = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s*[-–]\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\b/gi;
+
+      // Untuk fomccalendars.htm yang memuat banyak tahun, batasi blok teks di sekitar tahun target
+      let scopeText = plain;
+      if (url.includes('fomccalendars')) {
+        const idx = plain.indexOf(`${year} FOMC Meetings`);
+        if (idx !== -1) scopeText = plain.slice(idx, idx + 3500);
+      }
+
+      const found = new Set();
+      let m;
+      while ((m = sameMonthRe.exec(scopeText)) !== null) {
+        const mo = EN_MONTHS[m[1].toLowerCase()];
+        const d2 = parseInt(m[3], 10);
+        if (mo && d2 >= 1 && d2 <= 31) {
+          found.add(`${year}-${String(mo).padStart(2, '0')}-${String(d2).padStart(2, '0')}`);
+        }
+      }
+      while ((m = crossMonthRe.exec(scopeText)) !== null) {
+        const mo2 = EN_MONTHS[m[2].toLowerCase()];
+        const d2 = parseInt(m[3], 10);
+        if (mo2 && d2 >= 1 && d2 <= 31) {
+          found.add(`${year}-${String(mo2).padStart(2, '0')}-${String(d2).padStart(2, '0')}`);
+        }
+      }
+
+      if (found.size >= 6) {
+        return Array.from(found).sort();
+      }
+    } catch (e) {}
+  }
+
+  // Cadangan 8 jadwal FOMC tahunan standar jika federalreserve.gov lambat
+  const stdDays = [[1, 28], [3, 18], [4, 29], [6, 17], [7, 29], [9, 17], [10, 28], [12, 16]];
+  return stdDays.map(([mo, dy]) => {
+    const d = new Date(Date.UTC(year, mo - 1, dy));
+    if (d.getUTCDay() === 0) d.setUTCDate(dy + 1);
+    if (d.getUTCDay() === 6) d.setUTCDate(dy - 1);
+    return fmtISO(d);
   });
+}
+
+// 3. Tarik data seri FRED (plus vintage ALFRED untuk angka rilis awal yang tidak terdistorsi revisi)
+async function fetchFredSeries(seriesId) {
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (!res.ok) throw new Error(`FRED ${seriesId} HTTP ${res.status}`);
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split(',');
-    if (parts.length < 2) continue;
-    const date = parts[0].trim();
-    const val = parseFloat(parts[1].trim());
-    if (date && !isNaN(val)) rows.push({ date, val });
+    const [date, valStr] = lines[i].split(',');
+    const val = parseFloat((valStr || '').trim());
+    if (date && !isNaN(val)) rows.push({ date: date.trim(), val });
   }
   return rows;
 }
 
-function buildMonthlyEvents(rows, indicatorCode, label, unit, releaseType, calcMode) {
-  const events = [];
-  for (let i = 0; i < rows.length; i++) {
-    let actualNum = null;
-    let prevNum = null;
+async function fetchAlfredVintageMap(seriesId, vintageDates) {
+  if (!vintageDates.length) return null;
+  try {
+    const url = `https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=${encodeURIComponent(seriesId)}&vintage_date=${vintageDates.join(',')}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return null;
 
-    if (calcMode === 'MOM_DIFF') {
-      if (i < 2) continue;
-      actualNum = Math.round(rows[i].val - rows[i - 1].val);
-      prevNum = Math.round(rows[i - 1].val - rows[i - 2].val);
-    } else if (calcMode === 'YOY_PCT') {
-      if (i < 13) continue;
-      actualNum = ((rows[i].val - rows[i - 12].val) / rows[i - 12].val) * 100;
-      prevNum = ((rows[i - 1].val - rows[i - 13].val) / rows[i - 13].val) * 100;
-    } else if (calcMode === 'MOM_PCT') {
-      if (i < 2) continue;
-      actualNum = ((rows[i].val - rows[i - 1].val) / rows[i - 1].val) * 100;
-      prevNum = ((rows[i - 1].val - rows[i - 2].val) / rows[i - 2].val) * 100;
-    } else {
-      if (i < 1) continue;
-      actualNum = rows[i].val;
-      prevNum = rows[i - 1].val;
+    const headers = lines[0].split(',').map(h => h.trim());
+    const mapByVintage = {};
+    for (let c = 1; c < headers.length; c++) {
+      const m = headers[c].match(/(\d{8})$/);
+      if (m) {
+        const vIso = `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}`;
+        mapByVintage[vIso] = {};
+      }
     }
 
-    const [obsY, obsM] = rows[i].date.split('-').map(Number);
-    let relY = obsY;
-    let relM0 = obsM;
-    if (relM0 >= 12) {
-      relY += 1;
-      relM0 = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      const obsDate = (cols[0] || '').trim();
+      if (!obsDate) continue;
+      for (let c = 1; c < headers.length; c++) {
+        const m = headers[c].match(/(\d{8})$/);
+        if (!m) continue;
+        const vIso = `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}`;
+        const v = parseFloat((cols[c] || '').trim());
+        if (!isNaN(v)) mapByVintage[vIso][obsDate] = v;
+      }
     }
-
-    const relDate = releaseType === 'FIRST_FRIDAY'
-      ? getFirstFriday(relY, relM0)
-      : getReleaseBusinessDay(relY, relM0, releaseType === 'CPI_DAY' ? 12 : 15);
-
-    const decimals = unit === 'K' ? 0 : 1;
-    const fmtVal = (v) => unit === 'K' ? `${Math.round(v)}K` : `${v.toFixed(decimals)}%`;
-
-    events.push({
-      id: `${indicatorCode}_${fmtISO(relDate)}`,
-      dateISO: fmtISO(relDate),
-      year: relDate.getUTCFullYear(),
-      monthIndex: relDate.getUTCMonth() + 1,
-      monthName: NAMA_BULAN[relDate.getUTCMonth()],
-      day: relDate.getUTCDate(),
-      currency: 'USD',
-      code: indicatorCode,
-      event: label,
-      previous: fmtVal(prevNum),
-      previousNum: Number(prevNum.toFixed(2)),
-      forecast: null,
-      forecastNum: null,
-      actual: fmtVal(actualNum),
-      actualNum: Number(actualNum.toFixed(2)),
-      unit,
-      source: 'Federal Reserve (FRED)'
-    });
+    return mapByVintage;
+  } catch (e) {
+    return null;
   }
-  return events;
-}
-
-function buildFomcEvents(dfedtaruRows) {
-  const events = [];
-  const seenMonth = new Set();
-
-  for (let i = 1; i < dfedtaruRows.length; i++) {
-    const cur = dfedtaruRows[i];
-    const prev = dfedtaruRows[i - 1];
-    if (cur.val !== prev.val) {
-      const effDate = new Date(cur.date + 'T00:00:00Z');
-      const fomcDate = prevBusinessDay(effDate);
-      const ymKey = `${fomcDate.getUTCFullYear()}-${fomcDate.getUTCMonth()}`;
-      seenMonth.add(ymKey);
-
-      events.push({
-        id: `BUNGA_${fmtISO(fomcDate)}`,
-        dateISO: fmtISO(fomcDate),
-        year: fomcDate.getUTCFullYear(),
-        monthIndex: fomcDate.getUTCMonth() + 1,
-        monthName: NAMA_BULAN[fomcDate.getUTCMonth()],
-        day: fomcDate.getUTCDate(),
-        currency: 'USD',
-        code: 'BUNGA',
-        event: 'Suku Bunga The Fed (FOMC)',
-        previous: `${prev.val.toFixed(2)}%`,
-        previousNum: prev.val,
-        forecast: null,
-        forecastNum: null,
-        actual: `${cur.val.toFixed(2)}%`,
-        actualNum: cur.val,
-        unit: '%',
-        source: 'Federal Reserve (DFEDTARU)'
-      });
-    }
-  }
-
-  const FOMC_MONTHS = [0, 2, 4, 5, 6, 8, 10, 11];
-  const byMonthRate = {};
-  for (const r of dfedtaruRows) {
-    const [y, m] = r.date.split('-').map(Number);
-    byMonthRate[`${y}-${m - 1}`] = r.val;
-  }
-
-  const years = Array.from(new Set(dfedtaruRows.map(r => Number(r.date.slice(0, 4)))));
-  for (const y of years) {
-    for (const m0 of FOMC_MONTHS) {
-      const ymKey = `${y}-${m0}`;
-      if (seenMonth.has(ymKey)) continue;
-      const rate = byMonthRate[ymKey];
-      if (rate == null) continue;
-      const d = getReleaseBusinessDay(y, m0, m0 === 0 || m0 === 6 ? 26 : 18);
-      events.push({
-        id: `BUNGA_${fmtISO(d)}`,
-        dateISO: fmtISO(d),
-        year: y,
-        monthIndex: m0 + 1,
-        monthName: NAMA_BULAN[m0],
-        day: d.getUTCDate(),
-        currency: 'USD',
-        code: 'BUNGA',
-        event: 'Suku Bunga The Fed (FOMC)',
-        previous: `${rate.toFixed(2)}%`,
-        previousNum: rate,
-        forecast: null,
-        forecastNum: null,
-        actual: `${rate.toFixed(2)}%`,
-        actualNum: rate,
-        unit: '%',
-        source: 'Federal Reserve (DFEDTARU)'
-      });
-    }
-  }
-  return events;
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=7200');
+  res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=3600');
 
   const startYear = Math.max(2009, parseInt(req.query.startYear || '2015', 10));
   const endYear = Math.min(2030, parseInt(req.query.endYear || '2020', 10));
   const indicator = (req.query.indicator || 'ALL').toString().toUpperCase();
-  const monthFilter = parseInt(req.query.month || '0', 10);
 
   try {
+    const years = [];
+    for (let y = startYear; y <= endYear; y++) years.push(y);
+
     const needed = new Set(indicator === 'ALL' ? ['NFP', 'CPI', 'BUNGA'] : [indicator]);
-    const tasks = {};
-    if (needed.has('NFP')) tasks.payems = fetchFredCSV('PAYEMS');
-    if (needed.has('CPI')) tasks.cpi = fetchFredCSV('CPIAUCSL');
-    if (needed.has('BUNGA')) tasks.rate = fetchFredCSV('DFEDTARU');
-    if (needed.has('UNRATE')) tasks.unrate = fetchFredCSV('UNRATE');
-    if (needed.has('RETAIL')) tasks.retail = fetchFredCSV('RSAFS');
 
-    const keys = Object.keys(tasks);
-    const settled = await Promise.all(Object.values(tasks));
-    const rawMap = {};
-    keys.forEach((k, idx) => { rawMap[k] = settled[idx]; });
+    // Tarik seri FRED + Kalender Rilis Resmi secara paralel
+    const [payems, cpi, rateRows, unrate, retail, calNfpArr, calCpiArr, calRetailArr, fomcArr] = await Promise.all([
+      needed.has('NFP') ? fetchFredSeries('PAYEMS') : Promise.resolve(null),
+      needed.has('CPI') ? fetchFredSeries('CPIAUCSL') : Promise.resolve(null),
+      needed.has('BUNGA') ? fetchFredSeries('DFEDTARU') : Promise.resolve(null),
+      needed.has('UNRATE') ? fetchFredSeries('UNRATE') : Promise.resolve(null),
+      needed.has('RETAIL') ? fetchFredSeries('RSAFS') : Promise.resolve(null),
+      (needed.has('NFP') || needed.has('UNRATE')) ? Promise.all(years.map(y => fetchFredReleaseCalendar(50, y).then(m => [y, m]))) : Promise.resolve([]),
+      needed.has('CPI') ? Promise.all(years.map(y => fetchFredReleaseCalendar(10, y).then(m => [y, m]))) : Promise.resolve([]),
+      needed.has('RETAIL') ? Promise.all(years.map(y => fetchFredReleaseCalendar(9, y).then(m => [y, m]))) : Promise.resolve([]),
+      needed.has('BUNGA') ? Promise.all(years.map(y => fetchOfficialFomcDates(y))) : Promise.resolve([])
+    ]);
 
-    let allEvents = [];
-    if (rawMap.payems) allEvents.push(...buildMonthlyEvents(rawMap.payems, 'NFP', 'NFP (Non-Farm Payroll)', 'K', 'FIRST_FRIDAY', 'MOM_DIFF'));
-    if (rawMap.cpi) allEvents.push(...buildMonthlyEvents(rawMap.cpi, 'CPI', 'CPI YoY (Inflasi AS)', '%', 'CPI_DAY', 'YOY_PCT'));
-    if (rawMap.rate) allEvents.push(...buildFomcEvents(rawMap.rate));
-    if (rawMap.unrate) allEvents.push(...buildMonthlyEvents(rawMap.unrate, 'UNRATE', 'Tingkat Pengangguran AS', '%', 'FIRST_FRIDAY', 'DIRECT'));
-    if (rawMap.retail) allEvents.push(...buildMonthlyEvents(rawMap.retail, 'RETAIL', 'Retail Sales MoM AS', '%', 'RETAIL_DAY', 'MOM_PCT'));
+    const calNfp = Object.fromEntries(calNfpArr);
+    const calCpi = Object.fromEntries(calCpiArr);
+    const calRetail = Object.fromEntries(calRetailArr);
 
-    allEvents = allEvents.filter(ev => {
-      if (ev.year < startYear || ev.year > endYear) return false;
-      if (monthFilter > 0 && ev.monthIndex !== monthFilter) return false;
-      return true;
-    });
+    // Ambil angka initial release ALFRED khusus NFP agar persis seperti angka saat rilis (tidak terdistorsi revisi bertahun-tahun)
+    let alfredNfp = null;
+    if (payems) {
+      const targetVintages = [];
+      for (const y of years) {
+        for (let mo = 1; mo <= 12; mo++) {
+          const relIso = calNfp[y]?.[mo] || getBlsNfpFallback(y, mo);
+          targetVintages.push(addDaysISO(relIso, 3));
+        }
+      }
+      // Ambil per kelompok 24 tanggal agar URL tetap ringkas
+      alfredNfp = {};
+      for (let i = 0; i < targetVintages.length; i += 24) {
+        const chunk = await fetchAlfredVintageMap('PAYEMS', targetVintages.slice(i, i + 24));
+        if (chunk) Object.assign(alfredNfp, chunk);
+      }
+    }
+
+    const allEvents = [];
+
+    function processMonthlySeries(rows, code, label, unit, calMap, fallbackFn, mode) {
+      if (!rows) return;
+      const byObsDate = Object.fromEntries(rows.map(r => [r.date, r.val]));
+
+      for (let i = 0; i < rows.length; i++) {
+        const [obsY, obsM] = rows[i].date.split('-').map(Number);
+        let relY = obsY;
+        let relM = obsM + 1;
+        if (relM > 12) { relY += 1; relM = 1; }
+        if (relY < startYear || relY > endYear) continue;
+
+        const relIso = calMap[relY]?.[relM] || fallbackFn(relY, relM);
+        const vintageIso = addDaysISO(relIso, 3);
+
+        let actNum = null;
+        let prevNum = null;
+
+        if (mode === 'NFP_INITIAL' && alfredNfp && alfredNfp[vintageIso]) {
+          const vSeries = alfredNfp[vintageIso];
+          const d0 = rows[i].date;
+          const d1 = rows[i - 1]?.date;
+          const d2 = rows[i - 2]?.date;
+          if (vSeries[d0] != null && vSeries[d1] != null && vSeries[d2] != null) {
+            actNum = Math.round(vSeries[d0] - vSeries[d1]);
+            prevNum = Math.round(vSeries[d1] - vSeries[d2]);
+          }
+        }
+
+        if (actNum === null || prevNum === null) {
+          if (mode === 'NFP_INITIAL' || mode === 'MOM_DIFF') {
+            if (i < 2) continue;
+            actNum = Math.round(rows[i].val - rows[i - 1].val);
+            prevNum = Math.round(rows[i - 1].val - rows[i - 2].val);
+          } else if (mode === 'YOY_PCT') {
+            if (i < 13) continue;
+            actNum = ((rows[i].val - rows[i - 12].val) / rows[i - 12].val) * 100;
+            prevNum = ((rows[i - 1].val - rows[i - 13].val) / rows[i - 13].val) * 100;
+          } else if (mode === 'MOM_PCT') {
+            if (i < 2) continue;
+            actNum = ((rows[i].val - rows[i - 1].val) / rows[i - 1].val) * 100;
+            prevNum = ((rows[i - 1].val - rows[i - 2].val) / rows[i - 2].val) * 100;
+          } else {
+            if (i < 1) continue;
+            actNum = rows[i].val;
+            prevNum = rows[i - 1].val;
+          }
+        }
+
+        const [ry, rm, rd] = relIso.split('-').map(Number);
+        const fmt = (v) => unit === 'K' ? `${Math.round(v)}K` : `${v.toFixed(1)}%`;
+
+        allEvents.push({
+          id: `${code}_${relIso}`,
+          dateISO: relIso,
+          year: ry,
+          monthIndex: rm,
+          monthName: NAMA_BULAN[rm - 1],
+          day: rd,
+          currency: 'USD',
+          code,
+          event: label,
+          previous: fmt(prevNum),
+          previousNum: Number(prevNum.toFixed(2)),
+          forecast: null,
+          forecastNum: null,
+          actual: fmt(actNum),
+          actualNum: Number(actNum.toFixed(2)),
+          unit,
+          source: code === 'NFP' ? 'BLS / ALFRED Initial Release' : 'BLS / FRED Release Calendar'
+        });
+      }
+    }
+
+    processMonthlySeries(payems, 'NFP', 'NFP (Non-Farm Payroll)', 'K', calNfp, getBlsNfpFallback, 'NFP_INITIAL');
+    processMonthlySeries(cpi, 'CPI', 'CPI YoY (Inflasi AS)', '%', calCpi, getBlsCpiFallback, 'YOY_PCT');
+    processMonthlySeries(unrate, 'UNRATE', 'Tingkat Pengangguran AS', '%', calNfp, getBlsNfpFallback, 'DIRECT');
+    processMonthlySeries(retail, 'RETAIL', 'Retail Sales MoM AS', '%', calRetail, getBlsCpiFallback, 'MOM_PCT');
+
+    // Proses Suku Bunga FOMC berdasarkan tanggal rapat resmi Federal Reserve
+    if (rateRows && fomcArr.length) {
+      const rateByDate = Object.fromEntries(rateRows.map(r => [r.date, r.val]));
+      const getRateAt = (iso) => {
+        for (let back = 0; back <= 7; back++) {
+          const check = addDaysISO(iso, -back);
+          if (rateByDate[check] != null) return rateByDate[check];
+        }
+        return null;
+      };
+
+      for (const yearDates of fomcArr) {
+        for (const fomcIso of yearDates) {
+          const prevRate = getRateAt(addDaysISO(fomcIso, -1));
+          const actRate = getRateAt(addDaysISO(fomcIso, 2)) ?? prevRate;
+          if (prevRate == null || actRate == null) continue;
+
+          const [fy, fm, fd] = fomcIso.split('-').map(Number);
+          allEvents.push({
+            id: `BUNGA_${fomcIso}`,
+            dateISO: fomcIso,
+            year: fy,
+            monthIndex: fm,
+            monthName: NAMA_BULAN[fm - 1],
+            day: fd,
+            currency: 'USD',
+            code: 'BUNGA',
+            event: 'Suku Bunga The Fed (FOMC)',
+            previous: `${prevRate.toFixed(2)}%`,
+            previousNum: prevRate,
+            forecast: null,
+            forecastNum: null,
+            actual: `${actRate.toFixed(2)}%`,
+            actualNum: actRate,
+            unit: '%',
+            source: 'Federal Reserve FOMC Calendar'
+          });
+        }
+      }
+    }
 
     allEvents.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
 
     return res.status(200).json({
       ok: true,
-      source: 'Federal Reserve Bank of St. Louis (FRED Official Database)',
+      source: 'Federal Reserve (ALFRED/FRED) + Official BLS/FOMC Release Calendar',
       startYear,
       endYear,
       indicator,
