@@ -4,7 +4,7 @@ import { parseImportedCSV, downloadCSV } from '../core/csv.js';
 
 function getBadgeClass(code) {
   if (code === 'NFP') return 'tag-nfp';
-  if (code === 'CPI') return 'tag-cpi';
+  if (code === 'CPI' || code === 'CPI_YOY') return 'tag-cpi';
   if (code === 'BUNGA') return 'tag-bunga';
   return 'tag-other';
 }
@@ -14,7 +14,7 @@ export function applyNewsFilters() {
   STATE.rawEvents.forEach(ev => mergedMap.set(ev.id, { ...ev }));
   STATE.importedEvents.forEach(ev => {
     if (ev.year >= STATE.startYear && ev.year <= STATE.endYear) {
-      if (STATE.indicator === 'ALL' || ev.code === STATE.indicator) {
+      if (STATE.indicator === 'ALL' || STATE.indicator === 'ALL_HIGH' || ev.code === STATE.indicator) {
         mergedMap.set(ev.id, { ...ev });
       }
     }
@@ -31,7 +31,7 @@ export function applyNewsFilters() {
     list = list.filter(ev => ev.actualNum != null && ev.previousNum != null && ev.actualNum === ev.previousNum);
   }
 
-  list.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+  list.sort((a, b) => `${a.dateISO} ${a.timeWIB || ''}`.localeCompare(`${b.dateISO} ${b.timeWIB || ''}`));
   STATE.filteredEvents = list;
   renderArchiveTable();
   emitEvent('archive:updated', list);
@@ -46,7 +46,7 @@ export function renderArchiveTable() {
   if (countEl) countEl.textContent = `${list.length} Rilis Berita (${STATE.startYear}–${STATE.endYear})`;
 
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-slate-400">Tidak ada data pada rentang filter ini. Klik <b>Tarik Data Historis</b>.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">Tidak ada data pada rentang filter ini. Klik <b>Tarik Data Historis</b>.</td></tr>`;
     return;
   }
 
@@ -57,10 +57,10 @@ export function renderArchiveTable() {
     let actColor = 'text-slate-100';
     if (diff !== null) {
       if (diff > 0) {
-        diffHtml = `<span class="text-emerald-400 font-bold">▲ +${ev.unit === 'K' ? Math.round(diff) + 'K' : diff.toFixed(2) + '%'}</span>`;
+        diffHtml = `<span class="text-emerald-400 font-bold">▲ +${ev.unit === 'K' ? Math.round(diff) + 'K' : diff.toFixed(2).replace(/\.00$/, '.0') + '%'}</span>`;
         actColor = 'text-emerald-400';
       } else if (diff < 0) {
-        diffHtml = `<span class="text-red-400 font-bold">▼ ${ev.unit === 'K' ? Math.round(diff) + 'K' : diff.toFixed(2) + '%'}</span>`;
+        diffHtml = `<span class="text-red-400 font-bold">▼ ${ev.unit === 'K' ? Math.round(diff) + 'K' : diff.toFixed(2).replace(/\.00$/, '.0') + '%'}</span>`;
         actColor = 'text-red-400';
       } else {
         diffHtml = `<span class="text-amber-400 font-bold">= Tetap</span>`;
@@ -72,10 +72,11 @@ export function renderArchiveTable() {
       <tr>
         <td class="font-mono text-slate-400">${ev.year}</td>
         <td class="font-semibold text-slate-200">${esc(ev.monthName)}</td>
-        <td class="font-mono text-slate-300 text-center">${ev.day}</td>
+        <td class="font-mono text-slate-200 text-center font-bold">${ev.day}</td>
+        <td class="font-mono text-sky-400 text-[10px]">${esc(ev.timeWIB || '--:--')}</td>
         <td><span class="px-2 py-0.5 rounded text-[9px] font-bold ${getBadgeClass(ev.code)}">${esc(ev.code)}</span> <span class="text-slate-300 ml-1">${esc(ev.event)}</span></td>
         <td class="font-mono text-slate-300 text-right">${esc(ev.previous)}</td>
-        <td class="text-right"><input type="text" data-fcst-id="${esc(ev.id)}" value="${esc(fcstVal)}" placeholder="Isi..." class="fcst-input"></td>
+        <td class="text-right"><input type="text" data-fcst-id="${esc(ev.id)}" value="${esc(fcstVal)}" placeholder="-" class="fcst-input"></td>
         <td class="font-mono font-bold ${actColor} text-right">${esc(ev.actual)}</td>
         <td class="font-mono text-[10px]">${diffHtml}</td>
       </tr>
@@ -94,7 +95,7 @@ export async function fetchHistoricalNews() {
   const btn = document.getElementById('btn-fetch-news');
   const statusEl = document.getElementById('archive-source-status');
   if (btn) btn.disabled = true;
-  if (statusEl) statusEl.textContent = 'Menarik arsip resmi dari Federal Reserve (FRED)...';
+  if (statusEl) statusEl.textContent = 'Menarik data asli dari TradingView / FXStreet Calendar API...';
 
   try {
     const params = new URLSearchParams({
@@ -107,12 +108,12 @@ export async function fetchHistoricalNews() {
     const res = await fetch(`/api/history?${params.toString()}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'Gagal menarik data FRED');
+    if (!data.ok) throw new Error(data.error || 'Gagal menarik data kalender');
 
     STATE.rawEvents = data.events || [];
-    if (statusEl) statusEl.textContent = `Sumber Terverifikasi: ${data.source}`;
+    if (statusEl) statusEl.textContent = `Sumber Asli: ${data.source} • Zona Waktu: ${data.timezone || 'WIB'}`;
     applyNewsFilters();
-    toast(`✅ Berhasil memuat ${STATE.rawEvents.length} data berita (${STATE.startYear}–${STATE.endYear})!`, 'success');
+    toast(`✅ Berhasil memuat ${STATE.rawEvents.length} data berita asli (${STATE.startYear}–${STATE.endYear})!`, 'success');
   } catch (err) {
     if (statusEl) statusEl.textContent = `Gagal terhubung ke server: ${err.message}`;
     toast('⚠️ Gagal menarik data historis, periksa koneksi.', 'error');
@@ -136,6 +137,20 @@ export function initNewsArchive() {
     }
     selStart.innerHTML = optsStart;
     selEnd.innerHTML = optsEnd;
+  }
+
+  if (selInd) {
+    selInd.innerHTML = `
+      <option value="ALL">Utama (NFP + CPI m/m + Bunga)</option>
+      <option value="NFP">NFP (Non-Farm Payrolls)</option>
+      <option value="CPI">CPI m/m (Inflasi Bulanan)</option>
+      <option value="CPI_YOY">CPI y/y (Inflasi Tahunan)</option>
+      <option value="BUNGA">Suku Bunga (Federal Funds Rate)</option>
+      <option value="UNRATE">Unemployment Rate</option>
+      <option value="RETAIL">Retail Sales m/m</option>
+      <option value="GDP">GDP q/q</option>
+      <option value="ALL_HIGH">Semua Berita High-Impact USD</option>
+    `;
   }
 
   if (selMonth) {
@@ -168,9 +183,9 @@ export function initNewsArchive() {
 
   document.getElementById('btn-export-news-csv')?.addEventListener('click', () => {
     if (!STATE.filteredEvents.length) { toast('⚠️ Tidak ada data untuk diekspor', 'warning'); return; }
-    const headers = ['TAHUN', 'BULAN', 'TANGGAL', 'TANGGAL_ISO', 'DATA', 'SEBELUMNYA', 'RAMALAN', 'SEBENARNYA', 'SUMBER'];
+    const headers = ['TAHUN', 'BULAN', 'TANGGAL', 'JAM_WIB', 'TANGGAL_ISO', 'DATA', 'EVENT', 'SEBELUMNYA', 'RAMALAN', 'SEBENARNYA', 'SUMBER'];
     const rows = STATE.filteredEvents.map(ev => [
-      ev.year, ev.monthName, ev.day, ev.dateISO, ev.code, ev.previous,
+      ev.year, ev.monthName, ev.day, ev.timeWIB || '', ev.dateISO, ev.code, ev.event, ev.previous,
       STATE.forecasts[ev.id] ?? ev.forecast ?? '', ev.actual, ev.source
     ]);
     downloadCSV(`arsip-news-usd-${STATE.startYear}-${STATE.endYear}.csv`, headers, rows);

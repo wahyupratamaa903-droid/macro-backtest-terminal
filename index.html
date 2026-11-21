@@ -19,7 +19,7 @@
         </div>
         <div>
           <h1 class="text-xs font-black grad-cyan leading-tight">MACRO BACKTEST TERMINAL</h1>
-          <p class="text-[8px] text-slate-400 font-mono">Federal Reserve (FRED) + Yahoo Finance OHLC</p>
+          <p class="text-[8px] text-slate-400 font-mono">TradingView / FXStreet Calendar + Yahoo OHLC</p>
         </div>
       </div>
       <span id="archive-count" class="text-[9px] font-mono px-2.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/25 text-sky-300">Memuat...</span>
@@ -28,13 +28,12 @@
 
   <main class="max-w-6xl mx-auto p-3 md:p-5 space-y-4">
 
-    <!-- TAB 1: ARSIP DATA NEWS HISTORIS (2015-2026) -->
     <section id="tab-archive" class="tab-panel active space-y-3">
       <div class="glass-card p-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
           <div>
             <h2 class="text-xs font-black grad-cyan"><i class="fas fa-calendar-check mr-1.5"></i>Arsip News Ekonomi USD (Sebelumnya • Ramalan • Sebenarnya)</h2>
-            <p id="archive-source-status" class="text-[9px] text-emerald-400 font-mono mt-0.5">Menghubungkan ke database resmi...</p>
+            <p id="archive-source-status" class="text-[9px] text-emerald-400 font-mono mt-0.5">Menghubungkan ke server kalender...</p>
           </div>
           <div class="flex gap-1.5 flex-wrap">
             <button type="button" data-year-preset="2015-2020" class="chip-btn active">2015–2020</button>
@@ -54,14 +53,7 @@
           </div>
           <div>
             <label class="text-[8px] text-slate-400 block mb-0.5">Jenis Data News</label>
-            <select id="flt-indicator" class="ctrl-in">
-              <option value="ALL">Semua (NFP + CPI + Bunga)</option>
-              <option value="NFP">NFP (Non-Farm Payroll)</option>
-              <option value="CPI">CPI YoY (Inflasi AS)</option>
-              <option value="BUNGA">Suku Bunga (FOMC Rate)</option>
-              <option value="UNRATE">Unemployment Rate</option>
-              <option value="RETAIL">Retail Sales MoM</option>
-            </select>
+            <select id="flt-indicator" class="ctrl-in"></select>
           </div>
           <div>
             <label class="text-[8px] text-slate-400 block mb-0.5">Filter Bulan</label>
@@ -90,9 +82,6 @@
           </button>
           <input type="file" id="input-import-csv" accept=".csv,text/csv" class="hidden">
         </div>
-        <p class="text-[9px] text-slate-400 mt-2">
-          <i class="fas fa-info-circle text-amber-400 mr-1"></i>Kolom <b>RAMALAN</b> dapat langsung diketik/diedit di tabel (otomatis tersimpan) atau dilengkapi sekaligus lewat tombol <b>Impor CSV</b>.
-        </p>
       </div>
 
       <div class="glass-card overflow-hidden">
@@ -103,9 +92,10 @@
                 <th>Tahun</th>
                 <th>Bulan</th>
                 <th class="text-center">Tgl</th>
+                <th>Jam (WIB)</th>
                 <th>Data</th>
                 <th class="text-right">Sebelumnya</th>
-                <th class="text-right text-amber-400">Ramalan (Edit)</th>
+                <th class="text-right text-amber-400">Ramalan</th>
                 <th class="text-right">Sebenarnya</th>
                 <th>Perubahan</th>
               </tr>
@@ -116,7 +106,6 @@
       </div>
     </section>
 
-    <!-- TAB 2: MENU KHUSUS BACKTEST HARGA & PIPS -->
     <section id="tab-backtest" class="tab-panel space-y-3">
       <div class="glass-card p-4">
         <div class="mb-3">
@@ -177,14 +166,13 @@
       </div>
     </section>
 
-    <!-- TAB 3: AI BACKTEST STRATEGI -->
     <section id="tab-ai" class="tab-panel space-y-3">
       <div class="glass-card p-4">
         <h2 class="text-xs font-black grad-amber mb-1"><i class="fas fa-brain mr-1.5"></i>AI Quantitative Backtest Analyst</h2>
         <p class="text-[9px] text-slate-400 mb-3">Menganalisis pola statistik dari tabel Arsip News &amp; Hasil Backtest Pips yang sedang aktif.</p>
 
         <div class="flex gap-1.5 overflow-x-auto pb-2 mb-3">
-          <button type="button" class="chip-btn" data-bt-qp="Hitung berapa persen harga bergerak searah fundamental ketika Aktual lebih tinggi dari Sebelumnya pada dataset ini.">📊 Probabilitas Arah Rilis</button>
+          <button type="button" class="chip-btn" data-bt-qp="Hitung berapa persen harga bergerak searah fundamental ketika Aktual lebih tinggi dari Ramalan/Sebelumnya pada dataset ini.">📊 Probabilitas Arah Rilis</button>
           <button type="button" class="chip-btn" data-bt-qp="Berita mana antara NFP, CPI, dan Suku Bunga yang menghasilkan lonjakan pips (Range) terbesar dan paling konsisten?">⚡ Berita Paling Volatil</button>
           <button type="button" class="chip-btn" data-bt-qp="Buatkan aturan entry, SL, dan TP berbasis data historis ini agar terhindar dari whipsaw saat rilis news.">🛡️ Aturan Strategi News</button>
         </div>
@@ -204,14 +192,12 @@
       </div>
     </section>
 
-    <!-- TAB 4: TRANSPARANSI SUMBER & PENGATURAN CSV / API -->
     <section id="tab-settings" class="tab-panel space-y-3">
       <div class="glass-card p-4 space-y-3 text-xs">
-        <h2 class="text-xs font-black grad-cyan"><i class="fas fa-shield-alt mr-1.5"></i>Transparansi Sumber Data Resmi</h2>
+        <h2 class="text-xs font-black grad-cyan"><i class="fas fa-shield-alt mr-1.5"></i>Transparansi Sumber Data Asli (Tanpa Hardcode Tanggal)</h2>
         <div class="space-y-2 text-[11px] text-slate-300 leading-relaxed">
-          <p>1. <b>Data Makro Historis (2010–2026):</b> Ditarik langsung dari server resmi <b>Federal Reserve Bank of St. Louis (FRED)</b> menggunakan kode seri institusional: <code>PAYEMS</code> (Non-Farm Payroll), <code>CPIAUCSL</code> (Consumer Price Index), <code>DFEDTARU</code> (Federal Funds Target Rate), <code>UNRATE</code> (Unemployment Rate), dan <code>RSAFS</code> (Retail Sales).</p>
+          <p>1. <b>Data Kalender Ekonomi Historis:</b> Ditarik langsung secara real-time dari server <b>TradingView Economic Calendar API</b> (dengan cadangan <b>FXStreet Economic Calendar API</b>), lengkap dengan stempel waktu asli yang dikonversi ke <b>WIB (UTC+7)</b> serta nilai <i>Sebelumnya</i>, <i>Ramalan</i>, dan <i>Sebenarnya</i>.</p>
           <p>2. <b>Data Harga Historis (OHLC Pips):</b> Ditarik langsung dari arsip harian <b>Yahoo Finance Institutional Chart API</b> sesuai tanggal rilis berita.</p>
-          <p>3. <b>Kolom Ramalan (Forecast):</b> Karena FRED hanya merilis data resmi pemerintah (<i>Sebelumnya</i> &amp; <i>Sebenarnya</i>), kolom <b>Ramalan</b> tidak pernah diisi angka acak. Kamu bisa mengisinya langsung di tabel atau mengimpornya melalui file CSV.</p>
         </div>
 
         <div class="pt-2 border-t border-slate-800">
