@@ -17,16 +17,14 @@ export async function fetchFxStreetYear(year) {
 
   if (!res.ok) throw new Error(`FXStreet Calendar HTTP ${res.status}`);
   const rows = await res.json();
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error(`FXStreet mengembalikan 0 data untuk tahun ${year}`);
-  }
+  if (!Array.isArray(rows)) return [];
 
   const normalized = [];
   for (const r of rows) {
     const wib = toWibParts(r.dateUtc);
     if (!wib || wib.year !== year) continue;
 
-    const matched = classifyEventCode(r.name, '');
+    const matched = classifyEventCode(r.name, '', '');
     if (!matched) continue;
 
     const unit = r.unit || '';

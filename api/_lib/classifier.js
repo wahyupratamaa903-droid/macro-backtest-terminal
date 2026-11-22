@@ -49,10 +49,11 @@ export function formatCalValue(val, unit = '', scale = '') {
   return `${num}${u}`;
 }
 
-export function classifyEventCode(titleRaw, indicatorRaw = '') {
+export function classifyEventCode(titleRaw, indicatorRaw = '', periodRaw = '') {
   const title = (titleRaw || '').trim();
   const ind = (indicatorRaw || '').trim();
-  const t = `${title} ${ind}`.toLowerCase();
+  const per = (periodRaw || '').trim();
+  const t = `${title} ${ind} ${per}`.toLowerCase();
 
   // 1. NFP : Non-Farm Employment Change
   const isNfpName = (t.includes('non-farm') || t.includes('non farm') || t.includes('nonfarm')) &&
@@ -64,27 +65,32 @@ export function classifyEventCode(titleRaw, indicatorRaw = '') {
 
   // 2. CPI : CPI y/y (Ketat hanya CPI YoY, bukan m/m dan bukan Core)
   const isCpiFamily = /\bcpi\b/.test(t) || t.includes('consumer price index') || t.includes('inflation rate');
-  const isYoy = t.includes('y/y') || t.includes('yoy') || t.includes('(yoy)') || t.includes('year over year');
-  const cpiExclude = ['core', 'ex food', 'ex-food', 'nsa', 'non-seasonally', 'index s.a', 'expectation', 'median', 'trimmed', 'm/m', 'mom', 'q/q', 'qoq'];
-  if (isCpiFamily && isYoy && !cpiExclude.some(ex => t.includes(ex))) {
+  const isYoy = t.includes('y/y') || t.includes('yoy') || t.includes('(yoy)') || t.includes('year over year') || t.includes('annual');
+  const isMom = t.includes('m/m') || t.includes('mom') || t.includes('(mom)') || t.includes('month over month');
+  const cpiExclude = ['core', 'ex food', 'ex-food', 'nsa', 'non-seasonally', 'index s.a', 'expectation', 'median', 'trimmed', 'q/q', 'qoq', 'harmonised'];
+
+  if (isCpiFamily && isYoy && !isMom && !cpiExclude.some(ex => t.includes(ex))) {
     return { code: 'CPI', display: 'CPI y/y' };
   }
 
   // Opsional CPI m/m (hanya jika diminta khusus)
-  const isMom = t.includes('m/m') || t.includes('mom') || t.includes('(mom)');
-  if (isCpiFamily && isMom && !['core', 'ex food', 'ex-food', 'nsa', 'expectation', 'y/y', 'yoy'].some(ex => t.includes(ex))) {
+  if (isCpiFamily && isMom && !isYoy && !cpiExclude.some(ex => t.includes(ex))) {
     return { code: 'CPI_MOM', display: 'CPI m/m' };
   }
 
   // 3. SUKU BUNGA : Fed Funds Rate
   const isRateName =
-    t.includes('fed interest rate decision') ||
+    t.includes('fed interest rate') ||
     t.includes('federal funds rate') ||
     t.includes('fed funds rate') ||
-    t.includes('fomc interest rate decision') ||
-    title.toLowerCase() === 'interest rate decision' ||
-    (ind.toLowerCase() === 'interest rate' && title.toLowerCase().includes('decision'));
-  const rateExclude = ['projection', 'longer run', '1st yr', '2nd yr', '3rd yr', 'current', 'statement', 'minutes', 'speech', 'speaks', 'mortgage', 'prime', 'deposit', 'bill', 'note', 'bond', 'effective', 'sofr'];
+    t.includes('fomc interest rate') ||
+    t.includes('fomc rate decision') ||
+    ['interest rate decision', 'fed rate decision', 'interest rate'].includes(title.toLowerCase());
+  const rateExclude = [
+    'projection', 'longer run', '1st yr', '2nd yr', '3rd yr', 'current',
+    'statement', 'minutes', 'speech', 'speaks', 'press conference',
+    'mortgage', 'prime', 'deposit', 'bill', 'note', 'bond', 'effective', 'sofr', 'libor'
+  ];
   if (isRateName && !rateExclude.some(ex => t.includes(ex))) {
     return { code: 'BUNGA', display: 'Fed Funds Rate' };
   }

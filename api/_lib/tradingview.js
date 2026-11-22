@@ -1,10 +1,7 @@
 import { toWibParts, formatCalValue, classifyEventCode } from './classifier.js';
 
-export async function fetchTradingViewYear(year) {
-  const fromISO = `${year - 1}-12-31T00:00:00.000Z`;
-  const toISO = `${year + 1}-01-02T23:59:59.000Z`;
+async function fetchTradingViewWindow(fromISO, toISO, targetYear) {
   const url = `https://economic-calendar.tradingview.com/events?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}&countries=US`;
-
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -15,19 +12,16 @@ export async function fetchTradingViewYear(year) {
     signal: AbortSignal.timeout(7000)
   });
 
-  if (!res.ok) throw new Error(`TradingView Calendar HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`TradingView HTTP ${res.status}`);
   const json = await res.json();
   const rows = json?.result || [];
-  if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error(`TradingView mengembalikan 0 data untuk tahun ${year}`);
-  }
-
   const normalized = [];
+
   for (const r of rows) {
     const wib = toWibParts(r.date);
-    if (!wib || wib.year !== year) continue;
+    if (!wib || wib.year !== targetYear) continue;
 
-    const matched = classifyEventCode(r.title, r.indicator);
+    const matched = classifyEventCode(r.title, r.indicator, r.period);
     if (!matched) continue;
 
     const prevStr = formatCalValue(r.previous, r.unit, r.scale);
@@ -53,8 +47,23 @@ export async function fetchTradingViewYear(year) {
       actual: actStr,
       actualNum: r.actual != null ? Number(r.actual) : null,
       unit: r.unit || '',
-      source: r.source ? `TradingView (${r.source})` : 'TradingView Economic Calendar'
+      source: 'TradingView Economic Calendar'
     });
   }
   return normalized;
+}
+
+// Pecah 1 tahun menjadi 6 jendela (per 2 bulan) agar tidak pernah terkena batas 500 baris TradingView
+export async function fetchTradingViewYear(year) {
+  const windows = [
+    [`${year - 1}-12-31T00:00:00.000Z`, `${year}-03-01T00:00:00.000Z`],
+    [`${year}-03-01T00:00:00.000Z`, `${year}-05-01T00:00:00.000Z`],
+    [`${year}-05-01T00:00:00.000Z`, `${year}-07-01T00:00:00.000Z`],
+    [`${year}-07-01T00:00:00.000Z`, `${year}-09-01T00:00:00.000Z`],
+    [`${year}-09-01T00:00:00.000Z`, `${year}-11-01T00:00:00.000Z`],
+    [`${year}-11-01T00:00:00.000Z`, `${year + 1}-01-02T00:00:00.000Z`]
+  ];
+
+  const chunks = await Promise.all(windows.map(([f, t]) => fetchTradingViewWindow(f, t, year)));
+  return chunks.flat();
 }
