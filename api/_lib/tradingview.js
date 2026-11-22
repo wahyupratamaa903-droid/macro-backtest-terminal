@@ -12,7 +12,7 @@ async function fetchTradingViewWindow(fromISO, toISO, targetYear) {
     signal: AbortSignal.timeout(7000)
   });
 
-  if (!res.ok) throw new Error(`TradingView HTTP ${res.status}`);
+  if (!res.ok) return [];
   const json = await res.json();
   const rows = json?.result || [];
   const normalized = [];
@@ -24,9 +24,9 @@ async function fetchTradingViewWindow(fromISO, toISO, targetYear) {
     const matched = classifyEventCode(r.title, r.indicator, r.period);
     if (!matched) continue;
 
-    const prevStr = formatCalValue(r.previous, r.unit, r.scale);
-    const fcstStr = r.forecast !== null && r.forecast !== undefined ? formatCalValue(r.forecast, r.unit, r.scale) : null;
-    const actStr = formatCalValue(r.actual, r.unit, r.scale);
+    const prevStr = formatCalValue(r.previous, r.unit, r.scale, matched.code);
+    const fcstStr = r.forecast !== null && r.forecast !== undefined ? formatCalValue(r.forecast, r.unit, r.scale, matched.code) : null;
+    const actStr = formatCalValue(r.actual, r.unit, r.scale, matched.code);
 
     normalized.push({
       id: `TV_${r.id || `${matched.code}_${wib.dateISO}_${wib.timeWIB}`}`,
@@ -53,7 +53,6 @@ async function fetchTradingViewWindow(fromISO, toISO, targetYear) {
   return normalized;
 }
 
-// Pecah 1 tahun menjadi 6 jendela (per 2 bulan) agar tidak pernah terkena batas 500 baris TradingView
 export async function fetchTradingViewYear(year) {
   const windows = [
     [`${year - 1}-12-31T00:00:00.000Z`, `${year}-03-01T00:00:00.000Z`],
@@ -64,6 +63,6 @@ export async function fetchTradingViewYear(year) {
     [`${year}-11-01T00:00:00.000Z`, `${year + 1}-01-02T00:00:00.000Z`]
   ];
 
-  const chunks = await Promise.all(windows.map(([f, t]) => fetchTradingViewWindow(f, t, year)));
-  return chunks.flat();
+  const settled = await Promise.allSettled(windows.map(([f, t]) => fetchTradingViewWindow(f, t, year)));
+  return settled.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
 }

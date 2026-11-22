@@ -23,30 +23,39 @@ export function toWibParts(utcIso) {
   };
 }
 
-export function formatCalValue(val, unit = '', scale = '') {
+export function formatCalValue(val, unit = '', scale = '', code = '') {
   if (val === null || val === undefined || val === '') return '-';
-  if (typeof val === 'string') return val;
-  const num = Number(val);
-  if (isNaN(num)) return String(val);
-
+  const rawStr = String(val).trim();
   const u = (unit || '').trim();
   const sc = (scale || '').trim().toUpperCase();
 
-  if (u === '%') {
-    const s = num.toFixed(2).replace(/\.00$/, '.0').replace(/(\.\d)0$/, '$1');
-    return `${s}%`;
+  const numMatch = rawStr.match(/^([+-]?\d+(?:\.\d+)?)/);
+  let num = numMatch ? parseFloat(numMatch[1]) : null;
+
+  const isPct = u === '%' || rawStr.endsWith('%') || ['CPI', 'CPI_MOM', 'BUNGA', 'UNRATE', 'RETAIL', 'GDP'].includes(code);
+  if (isPct && num !== null) {
+    if (code === 'BUNGA') {
+      let s = num.toFixed(2).replace(/0$/, '');
+      if (s.endsWith('.')) s += '0';
+      return `${s}%`;
+    }
+    if (Math.abs(num) < 0.05) num = 0;
+    return `${num.toFixed(1)}%`;
   }
-  if (sc === 'K' || u.toUpperCase() === 'K') {
+
+  if ((sc === 'K' || u.toUpperCase() === 'K' || rawStr.toUpperCase().endsWith('K') || code === 'NFP') && num !== null) {
     const kVal = Math.abs(num) >= 10000 ? Math.round(num / 1000) : Math.round(num);
     return `${kVal}K`;
   }
+
   if (sc === 'M' || u.toUpperCase() === 'M') {
-    return `${num.toFixed(2).replace(/\.00$/, '')}M`;
+    return num !== null ? `${num.toFixed(2).replace(/\.00$/, '')}M` : rawStr;
   }
   if (sc === 'B' || u.toUpperCase() === 'B') {
-    return `${num.toFixed(2).replace(/\.00$/, '')}B`;
+    return num !== null ? `${num.toFixed(2).replace(/\.00$/, '')}B` : rawStr;
   }
-  return `${num}${u}`;
+
+  return !u || rawStr.endsWith(u) ? rawStr : `${rawStr}${u}`;
 }
 
 export function classifyEventCode(titleRaw, indicatorRaw = '', periodRaw = '') {

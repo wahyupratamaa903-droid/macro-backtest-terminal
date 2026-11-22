@@ -15,7 +15,7 @@ export async function fetchFxStreetYear(year) {
     signal: AbortSignal.timeout(7000)
   });
 
-  if (!res.ok) throw new Error(`FXStreet Calendar HTTP ${res.status}`);
+  if (!res.ok) return [];
   const rows = await res.json();
   if (!Array.isArray(rows)) return [];
 
@@ -28,9 +28,9 @@ export async function fetchFxStreetYear(year) {
     if (!matched) continue;
 
     const unit = r.unit || '';
-    const prevStr = formatCalValue(r.previous, unit, '');
-    const fcstStr = r.consensus !== null && r.consensus !== undefined ? formatCalValue(r.consensus, unit, '') : null;
-    const actStr = formatCalValue(r.actual, unit, '');
+    const prevStr = formatCalValue(r.previous, unit, '', matched.code);
+    const fcstStr = r.consensus !== null && r.consensus !== undefined ? formatCalValue(r.consensus, unit, '', matched.code) : null;
+    const actStr = formatCalValue(r.actual, unit, '', matched.code);
 
     normalized.push({
       id: `FXS_${r.id || `${matched.code}_${wib.dateISO}_${wib.timeWIB}`}`,
