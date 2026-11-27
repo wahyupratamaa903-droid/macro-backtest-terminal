@@ -12,12 +12,13 @@ function parseEventUtcMs(ev) {
   return Date.UTC(y, m - 1, d, (hh || 0) - 7, mm || 0, 0);
 }
 
-function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWaitCandles }) {
+function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWaitCandles }) {
   const newsUtcMs = parseEventUtcMs(event);
   if (!newsUtcMs || candles.length === 0) {
     return {
       ...event,
       newsCandleTimeSec: null,
+      impulseCloseWIB: '-',
       entryCandleTimeSec: null,
       tradeStatus: 'NO_PRICE_DATA',
       pullbackCloseWIB: '-',
@@ -30,11 +31,13 @@ function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWai
     };
   }
 
+  // Temukan candle H4 yang sedang aktif saat jam rilis berita WIB (misal 20:30 WIB berada di sesi H4 20:00 WIB)
   const newsCandleIdx = candles.findIndex(c => c.closeTime > newsUtcMs);
   if (newsCandleIdx === -1) {
     return {
       ...event,
       newsCandleTimeSec: null,
+      impulseCloseWIB: '-',
       entryCandleTimeSec: null,
       tradeStatus: 'NO_FUTURE_CANDLE',
       pullbackCloseWIB: '-',
@@ -48,20 +51,58 @@ function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWai
   }
 
   const newsCandle = candles[newsCandleIdx];
-  let entryCandleIdx = -1;
   const searchLimit = Math.min(candles.length, newsCandleIdx + 1 + maxWaitCandles);
 
-  for (let i = newsCandleIdx + 1; i < searchLimit; i++) {
+  // TAHAP 1: Tunggu penutupan candle H4 yang SEARAH dengan tren news (Bullish/Hijau untuk BUY, Bearish/Merah untuk SELL)
+  // Pengecekan dimulai dari penutupan candle saat rilis berita (newsCandleIdx) atau candle H4 berikutnya
+  let impulseCandleIdx = -1;
+  for (let i = newsCandleIdx; i < searchLimit; i++) {
     const c = candles[i];
-    const isRed = c.close < c.open;
-    const isGreen = c.close > c.open;
+    const isBullishClose = c.close > c.open;
+    const isBearishClose = c.close < c.open;
 
-    if (event.effectiveBias === 'BUY' && isRed) {
-      entryCandleIdx = i;
+    if (event.effectiveBias === 'BUY' && isBullishClose) {
+      impulseCandleIdx = i;
       break;
     }
-    if (event.effectiveBias === 'SELL' && isGreen) {
-      entryCandleIdx = i;
+    if (event.effectiveBias === 'SELL' && isBearishClose) {
+      impulseCandleIdx = i;
+      break;
+    }
+  }
+
+  if (impulseCandleIdx === -1) {
+    return {
+      ...event,
+      newsCandleTimeSec: newsCandle.timeWibSec,
+      impulseCloseWIB: '-',
+      entryCandleTimeSec: null,
+      tradeStatus: 'NO_IMPULSE_CONFIRM',
+      pullbackCloseWIB: '-',
+      entryPrice: null,
+      tpPrice: null,
+      slPrice: null,
+      exitWIB: '-',
+      outcome: 'SKIPPED',
+      pipsResult: 0
+    };
+  }
+
+  // TAHAP 2: Setelah candle impuls searah tren tutup, tunggu 1 candle H4 BERLAWANAN arah (pullback) tutup penuh
+  let entryCandleIdx = -1;
+  const pullbackLimit = Math.min(candles.length, impulseCandleIdx + 1 + maxWaitCandles);
+
+  for (let j = impulseCandleIdx + 1; j < pullbackLimit; j++) {
+    const c = candles[j];
+    const isBearishClose = c.close < c.open; // Candle koreksi merah untuk BUY
+    const isBullishClose = c.close > c.open; // Candle koreksi hijau untuk SELL
+
+    if (event.effectiveBias === 'BUY' && isBearishClose) {
+      entryCandleIdx = j;
+      break;
+    }
+    if (event.effectiveBias === 'SELL' && isBullishClose) {
+      entryCandleIdx = j;
       break;
     }
   }
@@ -70,6 +111,7 @@ function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWai
     return {
       ...event,
       newsCandleTimeSec: newsCandle.timeWibSec,
+      impulseCloseWIB: candles[impulseCandleIdx].closeWIB,
       entryCandleTimeSec: null,
       tradeStatus: 'NO_PULLBACK_CLOSE',
       pullbackCloseWIB: '-',
@@ -82,6 +124,7 @@ function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWai
     };
   }
 
+  const impulseCandle = candles[impulseCandleIdx];
   const entryCandle = candles[entryCandleIdx];
   const entryPrice = Number(entryCandle.close.toFixed(2));
   const tpDistance = tpPips * pipSize;
@@ -99,8 +142,8 @@ function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWai
   let pipsResult = 0;
   let exitWIB = 'Masih Berjalan';
 
-  for (let j = entryCandleIdx + 1; j < candles.length; j++) {
-    const bar = candles[j];
+  for (let k = entryCandleIdx + 1; k < candles.length; k++) {
+    const bar = candles[k];
     if (event.effectiveBias === 'BUY') {
       const hitSL = bar.low <= slPrice;
       const hitTP = bar.high >= tpPrice;
@@ -137,9 +180,11 @@ function simulatePullbackTrade(event, candles, { tpPips, slPips, pipSize, maxWai
   return {
     ...event,
     newsCandleTimeSec: newsCandle.timeWibSec,
+    newsCandleSessionWIB: newsCandle.openWIB,
+    impulseCloseWIB: impulseCandle.closeWIB,
     entryCandleTimeSec: entryCandle.timeWibSec,
     tradeStatus: 'EXECUTED',
-    candleTF: entryCandle.timeframe,
+    candleTF: 'H4',
     pullbackCloseWIB: entryCandle.closeWIB,
     entryPrice,
     tpPrice,
@@ -154,13 +199,13 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=1800');
 
-  const startYear = Math.max(2015, parseInt(req.query.startYear || '2021', 10));
+  const startYear = Math.max(2015, parseInt(req.query.startYear || '2020', 10));
   const endYear = Math.min(2026, parseInt(req.query.endYear || '2026', 10));
   const indicatorFilter = (req.query.indicator || 'ALL').toString().toUpperCase();
   const compareMode = (req.query.compareMode || 'PREVIOUS').toString().toUpperCase() === 'FORECAST' ? 'FORECAST' : 'PREVIOUS';
   const tpPips = Math.max(50, parseInt(req.query.tpPips || '400', 10));
   const slPips = Math.max(25, parseInt(req.query.slPips || '200', 10));
-  const maxWaitCandles = Math.max(2, Math.min(30, parseInt(req.query.maxWait || '12', 10)));
+  const maxWaitCandles = Math.max(2, Math.min(36, parseInt(req.query.maxWait || '18', 10)));
   const initialPrevTrend = (req.query.initialTrend || 'BUY').toString().toUpperCase() === 'SELL' ? 'SELL' : 'BUY';
   const pipSize = 0.1;
 
@@ -206,7 +251,7 @@ export default async function handler(req, res) {
     });
 
     const trades = targetEvents.map(ev =>
-      simulatePullbackTrade(ev, candles, { tpPips, slPips, pipSize, maxWaitCandles })
+      simulateTwoStepPullbackTrade(ev, candles, { tpPips, slPips, pipSize, maxWaitCandles })
     );
 
     const closedTrades = trades.filter(t => t.outcome === 'WIN' || t.outcome === 'LOSS');
@@ -216,10 +261,9 @@ export default async function handler(req, res) {
     const winRate = closedTrades.length > 0 ? Number(((wins / closedTrades.length) * 100).toFixed(1)) : 0;
     const overrideCount = trades.filter(t => t.ruleApplied === 'OVERRIDE_2_OF_3').length;
     const fallbackCount = trades.filter(t => t.ruleApplied.includes('FALLBACK_PREV_MONTH')).length;
-    const hasDailyFallback = candles.some(c => !c.isNativeH4);
+    const activeFeed = candles.length > 0 ? candles[candles.length - 1].feed : 'Tidak tersedia';
 
-    // Format ringan untuk chart frontend (maksimal 6000 candle terakhir agar ringan di HP)
-    const chartCandles = candles.slice(-6000).map(c => ({
+    const chartCandles = candles.slice(-8000).map(c => ({
       time: c.timeWibSec,
       open: c.open,
       high: c.high,
@@ -230,7 +274,8 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       timezone: 'Asia/Jakarta (WIB / UTC+7)',
-      hasDailyFallback,
+      activeFeed,
+      totalH4Candles: candles.length,
       summary: {
         totalSignals: trades.length,
         executedTrades: closedTrades.length,

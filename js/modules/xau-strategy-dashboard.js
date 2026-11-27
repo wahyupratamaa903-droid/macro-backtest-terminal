@@ -51,7 +51,6 @@ function renderChartData(candles, trades) {
   if (!chartInstance) initInteractiveChart();
   if (!candleSeries || !candles || !candles.length) return;
 
-  // Pastikan timestamp unik dan terurut menaik
   const uniqueMap = new Map();
   for (const c of candles) {
     uniqueMap.set(c.time, c);
@@ -62,7 +61,6 @@ function renderChartData(candles, trades) {
   const minTime = cleanCandles[0].time;
   const maxTime = cleanCandles[cleanCandles.length - 1].time;
 
-  // Buat marker rilis berita & titik entry langsung di atas chart
   const rawMarkers = [];
   for (const t of trades) {
     if (t.newsCandleTimeSec && t.newsCandleTimeSec >= minTime && t.newsCandleTimeSec <= maxTime) {
@@ -72,21 +70,30 @@ function renderChartData(candles, trades) {
         position: isBuy ? 'belowBar' : 'aboveBar',
         color: isBuy ? '#2ecc71' : '#e74c3c',
         shape: isBuy ? 'arrowUp' : 'arrowDown',
-        text: `${t.code} (${t.effectiveBias})`
+        text: `${t.code} ${t.timeWIB || ''} (${t.effectiveBias})`
       });
     }
   }
 
   rawMarkers.sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(rawMarkers);
-  chartInstance.timeScale().fitContent();
+
+  // Tampilkan 120 candle H4 terakhir agar jelas di layar HP (tidak terlalu rapat)
+  const total = cleanCandles.length;
+  if (total > 120) {
+    chartInstance.timeScale().setVisibleRange({
+      from: cleanCandles[total - 120].time,
+      to: cleanCandles[total - 1].time + 4 * 3600
+    });
+  } else {
+    chartInstance.timeScale().fitContent();
+  }
 }
 
 function focusTradeOnChart(index) {
   const t = latestTrades[index];
   if (!t || !chartInstance || !candleSeries) return;
 
-  // Hapus garis TP/SL/Entry sebelumnya
   for (const line of activePriceLines) {
     try { candleSeries.removePriceLine(line); } catch (_) {}
   }
@@ -124,14 +131,14 @@ function focusTradeOnChart(index) {
   const centerSec = t.entryCandleTimeSec || t.newsCandleTimeSec;
   if (centerSec) {
     chartInstance.timeScale().setVisibleRange({
-      from: centerSec - 18 * 4 * 3600,
-      to: centerSec + 28 * 4 * 3600
+      from: centerSec - 20 * 4 * 3600,
+      to: centerSec + 30 * 4 * 3600
     });
   }
 
   const infoEl = document.getElementById('chartFocusInfo');
   if (infoEl) {
-    infoEl.textContent = `Fokus Chart: ${t.dateISO} ${t.timeWIB} WIB | ${t.code} (Prev: ${t.previous} -> Act: ${t.actual}) | Eksekusi: ${t.effectiveBias} @ ${t.entryPrice ?? '-'} | Hasil: ${t.outcome}`;
+    infoEl.textContent = `Fokus H4: Rilis ${t.dateISO} ${t.timeWIB} WIB (Sesi H4 ${t.newsCandleSessionWIB || '-'}) | Impuls Close: ${t.impulseCloseWIB || '-'} | Pullback Entry: ${t.pullbackCloseWIB} @ ${t.entryPrice ?? '-'} (${t.outcome})`;
   }
 
   document.getElementById('chartSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -170,7 +177,7 @@ function renderTable(trades) {
     const pipsText = t.outcome === 'WIN' || t.outcome === 'LOSS' ? `${t.pipsResult > 0 ? '+' : ''}${t.pipsResult}` : '-';
 
     return `
-      <tr class="clickable-row" data-idx="${idx}" title="Klik untuk melihat posisi news ini di chart">
+      <tr class="clickable-row" data-idx="${idx}" title="Klik untuk fokus posisi ini di chart H4">
         <td>${idx + 1}</td>
         <td><strong>${t.dateISO}</strong><br><small>${t.timeWIB || '-'} WIB</small></td>
         <td><span class="code-pill">${t.code}</span><br><small>Ke-${t.orderInMonth}/${t.totalInMonth}</small></td>
@@ -178,7 +185,11 @@ function renderTable(trades) {
         <td>${t.newsDirection}<br><small>Mentah: ${t.rawGoldBias}</small></td>
         <td>${badgeRule(t.ruleApplied)}<br><small>${t.ruleDetail}</small></td>
         <td class="${biasClass}"><strong>${t.effectiveBias}</strong></td>
-        <td>${t.pullbackCloseWIB}<br><small>${t.candleTF || ''}</small></td>
+        <td>
+          <small>1. Impuls: ${t.impulseCloseWIB || '-'}</small><br>
+          <strong>2. Pullback: ${t.pullbackCloseWIB}</strong><br>
+          <small>TF: H4</small>
+        </td>
         <td>${t.entryPrice !== null ? t.entryPrice.toFixed(2) : '-'}</td>
         <td>${t.tpPrice !== null ? t.tpPrice.toFixed(2) : '-'}</td>
         <td>${t.slPrice !== null ? t.slPrice.toFixed(2) : '-'}</td>
@@ -209,8 +220,8 @@ async function runStrategyBacktest() {
   const statusEl = document.getElementById('statusBanner');
 
   btn.disabled = true;
-  btn.textContent = 'Memuat Chart & Simulasi...';
-  statusEl.textContent = 'Menarik kalender FXStreet + TradingView & menyelaraskan candle H4 XAUUSD...';
+  btn.textContent = 'Memuat Candle H4...';
+  statusEl.textContent = 'Menarik kalender FXStreet + TradingView & candle H4 XAUUSD (2015–2026)...';
 
   try {
     const params = new URLSearchParams({
@@ -233,11 +244,7 @@ async function runStrategyBacktest() {
     renderTable(latestTrades);
     renderChartData(data.chartCandles || [], latestTrades);
 
-    const warnNote = data.hasDailyFallback
-      ? ' ⚠️ Catatan: Tahun < 2020 memakai candle D1-Fallback karena feed H4 gratis tersedia mulai Sep 2019 (pilih 2020–2026 untuk 100% H4 presisi).'
-      : ' ✅ 100% Candle H4 Terkalibrasi (Sesi NY Close WIB).';
-
-    statusEl.textContent = `Selesai: ${data.summary.totalSignals} rilis berita (${startYear}–${endYear}) | Klik baris tabel mana pun untuk zoom ke chart.${warnNote}`;
+    statusEl.textContent = `Selesai: ${data.summary.totalSignals} rilis berita (${startYear}–${endYear}) | Feed Chart: ${data.activeFeed} (${data.totalH4Candles} candle H4) | Klik baris tabel untuk melihat detail Entry di chart.`;
   } catch (err) {
     statusEl.textContent = `Error: ${err.message}`;
   } finally {
@@ -274,14 +281,14 @@ function exportStrategyCsv() {
   const headers = [
     'NO', 'TANGGAL_ISO', 'JAM_WIB', 'INDIKATOR', 'URUTAN_BULAN',
     'SEBELUMNYA', 'RAMALAN', 'SEBENARNYA', 'STATUS_NEWS', 'SINYAL_MENTAH',
-    'ATURAN_BULANAN', 'ARAH_EKSEKUSI', 'WAKTU_CLOSE_PULLBACK_H4',
+    'ATURAN_BULANAN', 'ARAH_EKSEKUSI', 'CLOSE_IMPULS_H4', 'CLOSE_PULLBACK_H4',
     'ENTRY_PRICE', 'TP_PRICE', 'SL_PRICE', 'HASIL', 'NET_PIPS'
   ];
 
   const rows = latestTrades.map((t, i) => [
     i + 1, t.dateISO, t.timeWIB, t.code, `${t.orderInMonth}/${t.totalInMonth}`,
     t.previous, t.forecast, t.actual, t.newsDirection, t.rawGoldBias,
-    t.ruleApplied, t.effectiveBias, t.pullbackCloseWIB,
+    t.ruleApplied, t.effectiveBias, t.impulseCloseWIB, t.pullbackCloseWIB,
     t.entryPrice ?? '', t.tpPrice ?? '', t.slPrice ?? '', t.outcome, t.pipsResult
   ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
 
@@ -290,7 +297,7 @@ function exportStrategyCsv() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `xauusd-macro-pullback-backtest.csv`;
+  a.download = `xauusd-macro-h4-2step-backtest.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

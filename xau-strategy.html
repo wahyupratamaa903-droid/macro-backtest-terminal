@@ -122,31 +122,41 @@
     <div class="topbar">
       <div>
         <h1>XAUUSD Pure Macro News & H4 Pullback Terminal</h1>
-        <p>Tanpa Indikator • Hanya CPI y/y, NFP & Suku Bunga USD • Pantangan 2/3 Bulanan • Chart Marker Real-Time</p>
+        <p>Timeframe H4 Penuh (2015–2026) • Konfirmasi 2-Tahap (Impuls Searah News + Close Pullback) • Pantangan 2/3 Bulanan</p>
       </div>
       <a href="/index.html" class="nav-btn">&larr; Arsip Berita Utama</a>
     </div>
 
     <div class="controls">
       <div class="field">
-        <label>Tahun Mulai (2020+ = 100% H4)</label>
+        <label>Tahun Mulai (2015–2026)</label>
         <select id="startYear">
-          <option value="2015">2015 (D1 < 2020)</option>
-          <option value="2018">2018 (D1 < 2020)</option>
-          <option value="2020" selected>2020 (H4 Penuh)</option>
-          <option value="2021">2021 (H4 Penuh)</option>
-          <option value="2022">2022 (H4 Penuh)</option>
-          <option value="2023">2023 (H4 Penuh)</option>
-          <option value="2024">2024 (H4 Penuh)</option>
-          <option value="2025">2025 (H4 Penuh)</option>
-          <option value="2026">2026 (H4 Penuh)</option>
+          <option value="2015">2015</option>
+          <option value="2016">2016</option>
+          <option value="2017">2017</option>
+          <option value="2018">2018</option>
+          <option value="2019">2019</option>
+          <option value="2020" selected>2020</option>
+          <option value="2021">2021</option>
+          <option value="2022">2022</option>
+          <option value="2023">2023</option>
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+          <option value="2026">2026</option>
         </select>
       </div>
       <div class="field">
-        <label>Tahun Akhir</label>
+        <label>Tahun Akhir (2015–2026)</label>
         <select id="endYear">
+          <option value="2015">2015</option>
+          <option value="2016">2016</option>
+          <option value="2017">2017</option>
+          <option value="2018">2018</option>
+          <option value="2019">2019</option>
           <option value="2020">2020</option>
+          <option value="2021">2021</option>
           <option value="2022">2022</option>
+          <option value="2023">2023</option>
           <option value="2024">2024</option>
           <option value="2025">2025</option>
           <option value="2026" selected>2026</option>
@@ -177,8 +187,8 @@
         <input type="number" id="slPips" value="200" min="25" step="10" />
       </div>
       <div class="field">
-        <label>Batas Tunggu Pullback (Candle H4)</label>
-        <input type="number" id="maxWait" value="12" min="2" max="30" step="1" />
+        <label>Batas Kadaluarsa Sinyal (Candle H4)</label>
+        <input type="number" id="maxWait" value="18" min="2" max="36" step="1" />
       </div>
       <div class="field">
         <label>Tren Awal (Jika Data Pertama Tetap)</label>
@@ -227,7 +237,7 @@
           <button type="button" class="chart-tab active" id="tabBacktestChart">Chart Backtest + Marker News (H4 WIB)</button>
           <button type="button" class="chart-tab" id="tabLiveTvChart">Live Chart TradingView (OANDA:XAUUSD H4)</button>
         </div>
-        <div class="chart-focus-info" id="chartFocusInfo">Klik baris tabel di bawah untuk melihat garis Entry, TP, dan SL di chart</div>
+        <div class="chart-focus-info" id="chartFocusInfo">Klik baris tabel di bawah untuk melihat garis Entry, TP, dan SL di chart H4</div>
       </div>
 
       <div id="paneBacktestChart">
@@ -257,7 +267,7 @@
             <th>Status News</th>
             <th>Aturan Bulanan (2/3 & Tetap)</th>
             <th>Arah Eksekusi</th>
-            <th>Close Pullback H4</th>
+            <th>Konfirmasi H4 (Impuls &rarr; Pullback)</th>
             <th>Entry</th>
             <th>TP</th>
             <th>SL</th>
