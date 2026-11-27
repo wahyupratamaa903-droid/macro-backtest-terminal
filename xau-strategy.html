@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XAUUSD Pure Macro & H4 Pullback Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --panel: #131a26;
+      --border: #233044;
+      --text: #e6edf7;
+      --muted: #8b9bb4;
+      --accent: #f5b041;
+      --green: #2ecc71;
+      --red: #e74c3c;
+      --blue: #3498db;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
+    }
+    .container { max-width: 1380px; margin: 0 auto; }
+    .topbar {
+      display: flex; flex-wrap: wrap; justify-content: space-between;
+      align-items: center; gap: 12px; margin-bottom: 16px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    }
+    .topbar h1 { margin: 0; font-size: 1.25rem; color: var(--accent); }
+    .topbar p { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+    .nav-btn {
+      text-decoration: none; color: var(--text); background: var(--panel);
+      border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px;
+      font-size: 0.85rem;
+    }
+    .controls {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px; background: var(--panel); padding: 14px;
+      border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px;
+    }
+    .field label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    .field select, .field input {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); padding: 8px; border-radius: 6px; font-size: 0.9rem;
+    }
+    .actions { display: flex; gap: 8px; align-items: flex-end; }
+    button {
+      cursor: pointer; border: none; border-radius: 6px; padding: 9px 14px;
+      font-weight: 600; font-size: 0.85rem;
+    }
+    #btnRunBacktest { background: var(--accent); color: #111; flex: 1; }
+    #btnExportCsv { background: #1f2b3d; color: var(--text); border: 1px solid var(--border); }
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px; margin-bottom: 16px;
+    }
+    .kpi-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px;
+    }
+    .kpi-label { font-size: 0.75rem; color: var(--muted); }
+    .kpi-value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; }
+    .kpi-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .status-bar {
+      font-size: 0.8rem; color: var(--muted); margin-bottom: 10px;
+      background: var(--panel); padding: 8px 12px; border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .table-wrap {
+      overflow-x: auto; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 8px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: #0f1520; color: var(--muted); font-weight: 600; white-space: nowrap; }
+    small { color: var(--muted); font-size: 0.74rem; }
+    .text-green { color: var(--green); }
+    .text-red { color: var(--red); }
+    .text-muted { color: var(--muted); }
+    .code-pill {
+      display: inline-block; background: #1e293b; color: var(--accent);
+      padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.75rem;
+    }
+    .badge {
+      display: inline-block; padding: 2px 6px; border-radius: 4px;
+      font-size: 0.7rem; font-weight: 700; margin-bottom: 3px;
+    }
+    .badge-warn { background: rgba(231, 76, 60, 0.2); color: #ff7675; }
+    .badge-info { background: rgba(52, 152, 219, 0.2); color: #74b9ff; }
+    .badge-ok { background: rgba(46, 204, 113, 0.2); color: #55efc4; }
+    .badge-neutral { background: rgba(149, 165, 166, 0.2); color: #dfe6e9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>XAUUSD Pure Macro News & H4 Pullback Terminal</h1>
+        <p>Tanpa Indikator • Hanya CPI y/y, NFP & Suku Bunga USD • Pantangan 2/3 Bulanan • Konfirmasi Close Pullback H4 (RR 1:2)</p>
+      </div>
+      <a href="/index.html" class="nav-btn">&larr; Kembali ke Arsip Berita Utama</a>
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label>Tahun Mulai</label>
+        <select id="startYear">
+          <option value="2015">2015</option>
+          <option value="2018">2018</option>
+          <option value="2020">2020</option>
+          <option value="2021" selected>2021</option>
+          <option value="2022">2022</option>
+          <option value="2023">2023</option>
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+          <option value="2026">2026</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Tahun Akhir</label>
+        <select id="endYear">
+          <option value="2020">2020</option>
+          <option value="2022">2022</option>
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+          <option value="2026" selected>2026</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Filter Berita USD</label>
+        <select id="indicatorFilter">
+          <option value="ALL" selected>SEMUA (NFP + CPI + BUNGA)</option>
+          <option value="NFP">NFP Saja</option>
+          <option value="CPI">CPI y/y Saja</option>
+          <option value="BUNGA">Suku Bunga Saja</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Take Profit (Pips)</label>
+        <input type="number" id="tpPips" value="400" min="50" step="10" />
+      </div>
+      <div class="field">
+        <label>Stop Loss (Pips)</label>
+        <input type="number" id="slPips" value="200" min="25" step="10" />
+      </div>
+      <div class="field">
+        <label>Tren Awal (Jika Data Pertama Tetap)</label>
+        <select id="initialTrend">
+          <option value="BUY" selected>BUY (Gold Menguat)</option>
+          <option value="SELL">SELL (Gold Melemah)</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button id="btnRunBacktest">Jalankan Simulasi XAUUSD</button>
+        <button id="btnExportCsv">CSV</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Total Rilis Berita</div>
+        <div class="kpi-value" id="kpiTotalSignals">-</div>
+        <div class="kpi-sub">NFP, CPI y/y, FOMC</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Win Rate (1:2 RR)</div>
+        <div class="kpi-value" id="kpiWinRate">-</div>
+        <div class="kpi-sub" id="kpiWinLoss">-</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Net Profit / Loss</div>
+        <div class="kpi-value" id="kpiNetPips">-</div>
+        <div class="kpi-sub">1 Pip = $0.10 XAUUSD</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Pantangan 2/3 Aktif</div>
+        <div class="kpi-value" id="kpiOverrides">-</div>
+        <div class="kpi-sub">Berita ke-3 kalah arah</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Fallback Data Tetap</div>
+        <div class="kpi-value" id="kpiFallbacks">-</div>
+        <div class="kpi-sub">Ikut tren bulan lalu</div>
+      </div>
+    </div>
+
+    <div class="status-bar" id="statusBanner">Siap menjalankan simulasi...</div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Waktu Rilis (WIB)</th>
+            <th>Indikator</th>
+            <th>Data (Prev vs Act)</th>
+            <th>Status News</th>
+            <th>Aturan Bulanan (2/3 & Tetap)</th>
+            <th>Arah Eksekusi</th>
+            <th>Close Pullback H4</th>
+            <th>Entry</th>
+            <th>TP (+400)</th>
+            <th>SL (-200)</th>
+            <th>Hasil</th>
+          </tr>
+        </thead>
+        <tbody id="strategyTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script type="module" src="/js/modules/xau-strategy-dashboard.js"></script>
+</body>
+</html>
