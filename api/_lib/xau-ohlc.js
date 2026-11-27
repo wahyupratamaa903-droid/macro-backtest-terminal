@@ -11,7 +11,7 @@ function formatWIB(ms) {
   return `${y}-${m}-${d} ${hh}:${mm} WIB`;
 }
 
-// Tarik satu blok Dukascopy XAU/USD 4HOUR (maksimal ~420 hari agar selalu < 2000 candle per request)
+// Tarik satu blok Dukascopy XAU/USD 4HOUR: format array [timestamp, open, high, low, close]
 async function fetchDukascopyChunk(chunkStartMs, chunkEndMs) {
   const url = `https://freeserv.dukascopy.com/2.0/index.php?path=chart%2Fjson3&splits=true&stocks=true&time_direction=P&jsonp=_cb&last_update=${chunkEndMs}&offer_side=B&instrument=XAU%2FUSD&interval=4HOUR&limit=2000`;
   try {
@@ -35,17 +35,17 @@ async function fetchDukascopyChunk(chunkStartMs, chunkEndMs) {
       if (openTime < chunkStartMs || openTime > chunkEndMs) continue;
 
       const o = Number(r[1]);
-      const c = Number(r[2]);
+      const h = Number(r[2]);
       const l = Number(r[3]);
-      const h = Number(r[4]);
+      const c = Number(r[4]);
       if ([o, h, l, c].some(v => Number.isNaN(v) || v <= 0)) continue;
 
-      // Abaikan bar kosong saat pasar Forex tutup (Sabtu penuh)
+      // Abaikan bar kosong saat pasar Forex tutup (Sabtu)
       const utcDay = new Date(openTime).getUTCDay();
       if (utcDay === 6) continue;
 
-      const high = Math.max(o, c, l, h);
-      const low = Math.min(o, c, l, h);
+      const high = Math.max(o, h, l, c);
+      const low = Math.min(o, h, l, c);
       const closeTime = openTime + FOUR_HOURS_MS;
 
       bars.push({
@@ -68,7 +68,6 @@ async function fetchDukascopyChunk(chunkStartMs, chunkEndMs) {
   }
 }
 
-// Tarik seluruh rentang tahun secara paralel per jendela 420 hari
 async function fetchDukascopyParallel(startMs, endMs) {
   const windowMs = 420 * 24 * ONE_HOUR_MS;
   const windows = [];
@@ -93,7 +92,6 @@ async function fetchDukascopyParallel(startMs, endMs) {
   return Array.from(map.values()).sort((a, b) => a.openTime - b.openTime);
 }
 
-// Cadangan murni hanya jika Dukascopy gagal total (difilter khusus jam buka Forex Senin-Jumat)
 async function fetchBinanceVisionWeekdayFallback(startMs, endMs) {
   const effectiveStart = Math.max(startMs, Date.UTC(2019, 8, 1));
   if (effectiveStart >= endMs) return [];
@@ -143,11 +141,9 @@ async function fetchBinanceVisionWeekdayFallback(startMs, endMs) {
 }
 
 export async function fetchXauCandles(startYear, endYear) {
-  // Tarik mundur 15 hari sebelum Jan 1 agar awal Januari memiliki konteks candle H4 penuh
   const startMs = Date.UTC(startYear, 0, 1, 0, 0, 0) - 15 * 24 * ONE_HOUR_MS;
   const endMs = Math.min(Date.now(), Date.UTC(endYear + 1, 0, 15, 23, 59, 59));
 
-  // Gunakan Dukascopy XAU/USD H4 secara eksklusif agar tidak pernah tercampur harga PAXG akhir pekan
   const dukaBars = await fetchDukascopyParallel(startMs, endMs);
   if (dukaBars.length > 0) {
     return dukaBars;

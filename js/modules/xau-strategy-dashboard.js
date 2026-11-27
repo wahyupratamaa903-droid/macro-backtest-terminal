@@ -5,7 +5,7 @@ let candleSeries = null;
 let positionBoxPrimitive = null;
 let activePriceLines = [];
 
-// Custom Primitive untuk menggambar Kotak TP (Hijau) & Kotak SL (Merah) persis seperti TradingView
+// Kotak Posisi Long/Short ala TradingView (TP Hijau & SL Merah)
 class TradingViewPositionBox {
   constructor() {
     this._box = null;
@@ -52,11 +52,11 @@ class TradingViewPositionBox {
 
               if (yEntryRaw === null || yTpRaw === null || ySlRaw === null) return;
 
-              const x1 = x1Raw !== null ? x1Raw * hRatio : 20 * hRatio;
-              const minBoxWidth = 64 * hRatio;
+              const x1 = x1Raw !== null ? x1Raw * hRatio : 24 * hRatio;
+              const minBoxWidth = 85 * hRatio;
               const x2 = x2Raw !== null
                 ? Math.max(x1 + minBoxWidth, x2Raw * hRatio)
-                : x1 + 140 * hRatio;
+                : x1 + 150 * hRatio;
               const boxWidth = x2 - x1;
 
               const yEntry = yEntryRaw * vRatio;
@@ -65,25 +65,25 @@ class TradingViewPositionBox {
 
               ctx.save();
 
-              // 1. KOTAK HIJAU (Zona Take Profit: Entry <-> TP)
+              // 1. KOTAK HIJAU = ZONA TAKE PROFIT (TP)
               const tpTop = Math.min(yEntry, yTp);
-              const tpHeight = Math.max(4 * vRatio, Math.abs(yTp - yEntry));
-              ctx.fillStyle = 'rgba(46, 204, 113, 0.25)';
+              const tpHeight = Math.max(6 * vRatio, Math.abs(yTp - yEntry));
+              ctx.fillStyle = 'rgba(46, 204, 113, 0.28)';
               ctx.fillRect(x1, tpTop, boxWidth, tpHeight);
               ctx.strokeStyle = '#2ecc71';
               ctx.lineWidth = 1.5 * hRatio;
               ctx.strokeRect(x1, tpTop, boxWidth, tpHeight);
 
-              // 2. KOTAK MERAH (Zona Stop Loss: Entry <-> SL)
+              // 2. KOTAK MERAH = ZONA STOP LOSS (SL)
               const slTop = Math.min(yEntry, ySl);
-              const slHeight = Math.max(4 * vRatio, Math.abs(ySl - yEntry));
-              ctx.fillStyle = 'rgba(231, 76, 60, 0.25)';
+              const slHeight = Math.max(6 * vRatio, Math.abs(ySl - yEntry));
+              ctx.fillStyle = 'rgba(231, 76, 60, 0.28)';
               ctx.fillRect(x1, slTop, boxWidth, slHeight);
               ctx.strokeStyle = '#e74c3c';
               ctx.lineWidth = 1.5 * hRatio;
               ctx.strokeRect(x1, slTop, boxWidth, slHeight);
 
-              // 3. GARIS PEMISAH ENTRY (Biru Terang)
+              // 3. GARIS ENTRY (Biru Terang)
               ctx.strokeStyle = '#38bdf8';
               ctx.lineWidth = 2 * hRatio;
               ctx.beginPath();
@@ -91,7 +91,7 @@ class TradingViewPositionBox {
               ctx.lineTo(x1 + boxWidth, yEntry);
               ctx.stroke();
 
-              // 4. Label Teks di dalam Kotak TP & SL
+              // 4. Label di dalam Kotak TP & SL
               const fontSize = Math.round(11 * vRatio);
               ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
               const padX = 6 * hRatio;
@@ -128,7 +128,7 @@ function initInteractiveChart() {
   container.innerHTML = '';
   chartInstance = LightweightCharts.createChart(container, {
     width: container.clientWidth,
-    height: 380,
+    height: 390,
     layout: {
       background: { color: '#0d131f' },
       textColor: '#cbd5e1'
@@ -142,12 +142,13 @@ function initInteractiveChart() {
     },
     rightPriceScale: {
       borderColor: '#233044',
-      scaleMargins: { top: 0.12, bottom: 0.12 }
+      scaleMargins: { top: 0.14, bottom: 0.14 }
     },
     timeScale: {
       borderColor: '#233044',
       timeVisible: true,
-      secondsVisible: false
+      secondsVisible: false,
+      barSpacing: 9
     }
   });
 
@@ -200,14 +201,24 @@ function renderChartData(candles, trades) {
   const rawMarkers = [];
   for (const t of trades) {
     if (t.newsCandleTimeSec && t.newsCandleTimeSec >= minTime && t.newsCandleTimeSec <= maxTime) {
-      const snappedTime = snapToNearestCandleTime(t.newsCandleTimeSec);
+      const snappedNews = snapToNearestCandleTime(t.newsCandleTimeSec);
       const isBuy = t.effectiveBias === 'BUY';
       rawMarkers.push({
-        time: snappedTime,
+        time: snappedNews,
         position: isBuy ? 'belowBar' : 'aboveBar',
         color: isBuy ? '#2ecc71' : '#e74c3c',
         shape: isBuy ? 'arrowUp' : 'arrowDown',
         text: `${t.code} ${t.timeWIB || ''} (${t.effectiveBias})`
+      });
+    }
+    if (t.entryCandleTimeSec && t.entryCandleTimeSec >= minTime && t.entryCandleTimeSec <= maxTime) {
+      const snappedEntry = snapToNearestCandleTime(t.entryCandleTimeSec);
+      rawMarkers.push({
+        time: snappedEntry,
+        position: t.effectiveBias === 'BUY' ? 'belowBar' : 'aboveBar',
+        color: '#38bdf8',
+        shape: 'circle',
+        text: `ENTRY ${t.effectiveBias}`
       });
     }
   }
@@ -215,7 +226,6 @@ function renderChartData(candles, trades) {
   rawMarkers.sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(rawMarkers);
 
-  // Otomatis tampilkan kotak TP/SL pada transaksi tereksekusi pertama/terbaru agar langsung terlihat
   const firstExecutedIdx = trades.findIndex(t => t.entryPrice !== null);
   if (firstExecutedIdx !== -1) {
     focusTradeOnChart(firstExecutedIdx, false);
@@ -235,7 +245,8 @@ function focusTradeOnChart(index, shouldScroll = true) {
 
   if (t.entryPrice !== null && t.entryCandleTimeSec) {
     const startSec = snapToNearestCandleTime(t.entryCandleTimeSec);
-    const endSec = snapToNearestCandleTime(t.exitCandleTimeSec || t.entryCandleTimeSec);
+    const rawEndSec = snapToNearestCandleTime(t.exitCandleTimeSec || t.entryCandleTimeSec);
+    const endSec = Math.max(rawEndSec, startSec + 6 * 4 * 3600);
 
     if (positionBoxPrimitive) {
       positionBoxPrimitive.setBox({
@@ -283,8 +294,8 @@ function focusTradeOnChart(index, shouldScroll = true) {
   if (centerSec && loadedCandles.length > 0) {
     const idx = loadedCandles.findIndex(c => c.time === centerSec);
     if (idx !== -1) {
-      const fromIdx = Math.max(0, idx - 18);
-      const toIdx = Math.min(loadedCandles.length - 1, idx + 32);
+      const fromIdx = Math.max(0, idx - 10);
+      const toIdx = Math.min(loadedCandles.length - 1, idx + 24);
       chartInstance.timeScale().setVisibleRange({
         from: loadedCandles[fromIdx].time,
         to: loadedCandles[toIdx].time
