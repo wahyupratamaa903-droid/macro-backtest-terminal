@@ -12,39 +12,44 @@ function parseNumericValue(raw) {
   return { raw: str, value: num, hasK, hasM };
 }
 
-export function evaluateRawNewsSignal(event) {
-  const prev = parseNumericValue(event.previous);
+export function evaluateRawNewsSignal(event, compareMode = 'PREVIOUS') {
+  const baseRaw = compareMode === 'FORECAST' && event.forecast !== null && event.forecast !== undefined && String(event.forecast).trim() !== ''
+    ? event.forecast
+    : event.previous;
+
+  const base = parseNumericValue(baseRaw);
   const act = parseNumericValue(event.actual);
 
-  if (!prev || !act) {
+  if (!base || !act) {
     return {
       newsDirection: 'UNKNOWN',
       rawGoldBias: 'FLAT',
-      prevNum: null,
-      actNum: null
+      baseNum: null,
+      actNum: null,
+      usedBaseLabel: compareMode === 'FORECAST' ? 'Forecast' : 'Previous'
     };
   }
 
-  let pVal = prev.value;
+  let bVal = base.value;
   let aVal = act.value;
 
-  // Normalisasi skala jika salah satu memakai akhiran K/M dan lainnya angka penuh
-  if (prev.hasK !== act.hasK) {
-    if (prev.hasK && Math.abs(aVal) >= 1000) pVal *= 1000;
-    if (act.hasK && Math.abs(pVal) >= 1000) aVal *= 1000;
+  if (base.hasK !== act.hasK) {
+    if (base.hasK && Math.abs(aVal) >= 1000) bVal *= 1000;
+    if (act.hasK && Math.abs(bVal) >= 1000) aVal *= 1000;
   }
-  if (prev.hasM !== act.hasM) {
-    if (prev.hasM && Math.abs(aVal) >= 1000000) pVal *= 1000000;
-    if (act.hasM && Math.abs(pVal) >= 1000000) aVal *= 1000000;
+  if (base.hasM !== act.hasM) {
+    if (base.hasM && Math.abs(aVal) >= 1000000) bVal *= 1000000;
+    if (act.hasM && Math.abs(bVal) >= 1000000) aVal *= 1000000;
   }
 
-  const diff = aVal - pVal;
+  const diff = aVal - bVal;
   if (Math.abs(diff) < 1e-9) {
     return {
       newsDirection: 'TETAP',
       rawGoldBias: 'FLAT',
-      prevNum: pVal,
-      actNum: aVal
+      baseNum: bVal,
+      actNum: aVal,
+      usedBaseLabel: compareMode === 'FORECAST' ? 'Forecast' : 'Previous'
     };
   }
 
@@ -54,21 +59,22 @@ export function evaluateRawNewsSignal(event) {
     return {
       newsDirection: 'MENGUAT',
       rawGoldBias: 'SELL',
-      prevNum: pVal,
-      actNum: aVal
+      baseNum: bVal,
+      actNum: aVal,
+      usedBaseLabel: compareMode === 'FORECAST' ? 'Forecast' : 'Previous'
     };
   }
 
   return {
     newsDirection: 'MELEMAH',
     rawGoldBias: 'BUY',
-    prevNum: pVal,
-    actNum: aVal
+    baseNum: bVal,
+    actNum: aVal,
+    usedBaseLabel: compareMode === 'FORECAST' ? 'Forecast' : 'Previous'
   };
 }
 
-export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY') {
-  // Kelompokkan event per (Tahun-Bulan) secara kronologis
+export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY', compareMode = 'PREVIOUS') {
   const monthGroups = new Map();
   for (const ev of sortedEvents) {
     const ymKey = `${ev.year}-${String(ev.monthIndex).padStart(2, '0')}`;
@@ -76,7 +82,7 @@ export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY'
     monthGroups.get(ymKey).push(ev);
   }
 
-  let prevMonthDominantTrend = initialPrevTrend; // 'BUY' atau 'SELL'
+  let prevMonthDominantTrend = initialPrevTrend;
   const enrichedEvents = [];
 
   for (const [ymKey, events] of monthGroups.entries()) {
@@ -85,7 +91,7 @@ export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY'
     const prevMonthUsedForThisMonth = prevMonthDominantTrend;
 
     events.forEach((ev, idx) => {
-      const evalRes = evaluateRawNewsSignal(ev);
+      const evalRes = evaluateRawNewsSignal(ev, compareMode);
 
       if (evalRes.rawGoldBias === 'BUY') buyVotes += 1;
       if (evalRes.rawGoldBias === 'SELL') sellVotes += 1;
@@ -94,7 +100,6 @@ export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY'
       let ruleApplied = 'NORMAL';
       let ruleDetail = '';
 
-      // 1. Cek Aturan Pantangan 2-dari-3 (Mayoritas Bulanan Terkunci)
       if (buyVotes >= 2) {
         effectiveBias = 'BUY';
         if (evalRes.rawGoldBias === 'SELL') {
@@ -120,13 +125,11 @@ export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY'
           ruleDetail = `Mayoritas 2/3 bulan berjalan terkonfirmasi SELL (${sellVotes}-${buyVotes})`;
         }
       } else {
-        // 2. Belum ada yang mencapai 2 suara
         if (evalRes.rawGoldBias === 'BUY' || evalRes.rawGoldBias === 'SELL') {
           effectiveBias = evalRes.rawGoldBias;
           ruleApplied = idx === 0 ? 'FIRST_NEWS_SIGNAL' : 'SINGLE_NEWS_SIGNAL';
-          ruleDetail = `Sinyal langsung news (${evalRes.newsDirection} -> Gold ${effectiveBias}), skor bulan ${buyVotes}B-${sellVotes}S`;
+          ruleDetail = `Sinyal news vs ${evalRes.usedBaseLabel} (${evalRes.newsDirection} -> Gold ${effectiveBias}), skor ${buyVotes}B-${sellVotes}S`;
         } else {
-          // Data TETAP (Actual === Previous)
           if (buyVotes === 0 && sellVotes === 0) {
             effectiveBias = prevMonthUsedForThisMonth;
             ruleApplied = 'FALLBACK_PREV_MONTH';
@@ -142,7 +145,7 @@ export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY'
           } else {
             effectiveBias = prevMonthUsedForThisMonth;
             ruleApplied = 'TIE_FALLBACK_PREV_MONTH';
-            ruleDetail = `Skor bulan seri (${buyVotes}-${sellVotes}) & data TETAP: ambil tren terbanyak bulan lalu (${prevMonthUsedForThisMonth})`;
+            ruleDetail = `Skor seri (${buyVotes}-${sellVotes}) & data TETAP: ambil tren terbanyak bulan lalu (${prevMonthUsedForThisMonth})`;
           }
         }
       }
@@ -162,13 +165,11 @@ export function applyMonthlyStrategyRules(sortedEvents, initialPrevTrend = 'BUY'
       });
     });
 
-    // Tentukan tren terbanyak bulan ini sebagai referensi bulan berikutnya
     if (buyVotes > sellVotes) {
       prevMonthDominantTrend = 'BUY';
     } else if (sellVotes > buyVotes) {
       prevMonthDominantTrend = 'SELL';
     }
-    // Jika seri 1-1 atau 0-0, pertahankan prevMonthDominantTrend sebelumnya
   }
 
   return enrichedEvents;

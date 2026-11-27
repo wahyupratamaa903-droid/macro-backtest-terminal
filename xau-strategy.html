@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>XAUUSD Pure Macro & H4 Pullback Dashboard</title>
+  <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     :root {
       --bg: #0b0f17;
@@ -22,72 +23,93 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      padding: 16px;
+      padding: 14px;
     }
-    .container { max-width: 1380px; margin: 0 auto; }
+    .container { max-width: 1400px; margin: 0 auto; }
     .topbar {
       display: flex; flex-wrap: wrap; justify-content: space-between;
-      align-items: center; gap: 12px; margin-bottom: 16px;
+      align-items: center; gap: 10px; margin-bottom: 14px;
       padding-bottom: 12px; border-bottom: 1px solid var(--border);
     }
-    .topbar h1 { margin: 0; font-size: 1.25rem; color: var(--accent); }
-    .topbar p { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+    .topbar h1 { margin: 0; font-size: 1.2rem; color: var(--accent); }
+    .topbar p { margin: 4px 0 0; font-size: 0.82rem; color: var(--muted); }
     .nav-btn {
       text-decoration: none; color: var(--text); background: var(--panel);
-      border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px;
-      font-size: 0.85rem;
+      border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px;
+      font-size: 0.82rem;
     }
     .controls {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px; background: var(--panel); padding: 14px;
-      border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 10px; background: var(--panel); padding: 12px;
+      border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px;
     }
-    .field label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    .field label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
     .field select, .field input {
       width: 100%; background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); padding: 8px; border-radius: 6px; font-size: 0.9rem;
+      border: 1px solid var(--border); padding: 7px 8px; border-radius: 6px; font-size: 0.86rem;
     }
     .actions { display: flex; gap: 8px; align-items: flex-end; }
     button {
-      cursor: pointer; border: none; border-radius: 6px; padding: 9px 14px;
-      font-weight: 600; font-size: 0.85rem;
+      cursor: pointer; border: none; border-radius: 6px; padding: 8px 12px;
+      font-weight: 600; font-size: 0.84rem;
     }
     #btnRunBacktest { background: var(--accent); color: #111; flex: 1; }
     #btnExportCsv { background: #1f2b3d; color: var(--text); border: 1px solid var(--border); }
     .kpi-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 10px; margin-bottom: 16px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px; margin-bottom: 14px;
     }
     .kpi-card {
       background: var(--panel); border: 1px solid var(--border);
-      border-radius: 8px; padding: 12px;
+      border-radius: 8px; padding: 10px 12px;
     }
-    .kpi-label { font-size: 0.75rem; color: var(--muted); }
-    .kpi-value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; }
-    .kpi-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .kpi-label { font-size: 0.73rem; color: var(--muted); }
+    .kpi-value { font-size: 1.25rem; font-weight: 700; margin-top: 4px; }
+    .kpi-sub { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+    .chart-box {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px; margin-bottom: 14px;
+    }
+    .chart-header {
+      display: flex; flex-wrap: wrap; justify-content: space-between;
+      align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .chart-tabs { display: flex; gap: 6px; }
+    .chart-tab {
+      background: var(--bg); color: var(--muted); border: 1px solid var(--border);
+      padding: 6px 12px; border-radius: 6px; font-size: 0.8rem;
+    }
+    .chart-tab.active {
+      background: var(--accent); color: #0b0f17; border-color: var(--accent);
+    }
+    .chart-focus-info {
+      font-size: 0.78rem; color: var(--accent);
+    }
     .status-bar {
-      font-size: 0.8rem; color: var(--muted); margin-bottom: 10px;
-      background: var(--panel); padding: 8px 12px; border-radius: 6px;
-      border: 1px solid var(--border);
+      font-size: 0.79rem; color: var(--text); margin-bottom: 10px;
+      background: #162032; padding: 9px 12px; border-radius: 6px;
+      border: 1px solid var(--border); line-height: 1.4;
     }
     .table-wrap {
       overflow-x: auto; background: var(--panel);
       border: 1px solid var(--border); border-radius: 8px;
     }
-    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.81rem; }
+    th, td { padding: 9px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
     th { background: #0f1520; color: var(--muted); font-weight: 600; white-space: nowrap; }
-    small { color: var(--muted); font-size: 0.74rem; }
+    tr.clickable-row { cursor: pointer; transition: background 0.15s; }
+    tr.clickable-row:hover { background: rgba(245, 176, 65, 0.08); }
+    small { color: var(--muted); font-size: 0.72rem; }
     .text-green { color: var(--green); }
     .text-red { color: var(--red); }
     .text-muted { color: var(--muted); }
     .code-pill {
       display: inline-block; background: #1e293b; color: var(--accent);
-      padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.75rem;
+      padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.74rem;
     }
     .badge {
       display: inline-block; padding: 2px 6px; border-radius: 4px;
-      font-size: 0.7rem; font-weight: 700; margin-bottom: 3px;
+      font-size: 0.69rem; font-weight: 700; margin-bottom: 3px;
     }
     .badge-warn { background: rgba(231, 76, 60, 0.2); color: #ff7675; }
     .badge-info { background: rgba(52, 152, 219, 0.2); color: #74b9ff; }
@@ -100,24 +122,24 @@
     <div class="topbar">
       <div>
         <h1>XAUUSD Pure Macro News & H4 Pullback Terminal</h1>
-        <p>Tanpa Indikator • Hanya CPI y/y, NFP & Suku Bunga USD • Pantangan 2/3 Bulanan • Konfirmasi Close Pullback H4 (RR 1:2)</p>
+        <p>Tanpa Indikator • Hanya CPI y/y, NFP & Suku Bunga USD • Pantangan 2/3 Bulanan • Chart Marker Real-Time</p>
       </div>
-      <a href="/index.html" class="nav-btn">&larr; Kembali ke Arsip Berita Utama</a>
+      <a href="/index.html" class="nav-btn">&larr; Arsip Berita Utama</a>
     </div>
 
     <div class="controls">
       <div class="field">
-        <label>Tahun Mulai</label>
+        <label>Tahun Mulai (2020+ = 100% H4)</label>
         <select id="startYear">
-          <option value="2015">2015</option>
-          <option value="2018">2018</option>
-          <option value="2020">2020</option>
-          <option value="2021" selected>2021</option>
-          <option value="2022">2022</option>
-          <option value="2023">2023</option>
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
-          <option value="2026">2026</option>
+          <option value="2015">2015 (D1 < 2020)</option>
+          <option value="2018">2018 (D1 < 2020)</option>
+          <option value="2020" selected>2020 (H4 Penuh)</option>
+          <option value="2021">2021 (H4 Penuh)</option>
+          <option value="2022">2022 (H4 Penuh)</option>
+          <option value="2023">2023 (H4 Penuh)</option>
+          <option value="2024">2024 (H4 Penuh)</option>
+          <option value="2025">2025 (H4 Penuh)</option>
+          <option value="2026">2026 (H4 Penuh)</option>
         </select>
       </div>
       <div class="field">
@@ -140,12 +162,23 @@
         </select>
       </div>
       <div class="field">
+        <label>Acuan Pembacaan News</label>
+        <select id="compareMode">
+          <option value="PREVIOUS" selected>Sebenarnya vs Sebelumnya</option>
+          <option value="FORECAST">Sebenarnya vs Ramalan</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Take Profit (Pips)</label>
         <input type="number" id="tpPips" value="400" min="50" step="10" />
       </div>
       <div class="field">
         <label>Stop Loss (Pips)</label>
         <input type="number" id="slPips" value="200" min="25" step="10" />
+      </div>
+      <div class="field">
+        <label>Batas Tunggu Pullback (Candle H4)</label>
+        <input type="number" id="maxWait" value="12" min="2" max="30" step="1" />
       </div>
       <div class="field">
         <label>Tren Awal (Jika Data Pertama Tetap)</label>
@@ -188,6 +221,29 @@
       </div>
     </div>
 
+    <div class="chart-box" id="chartSection">
+      <div class="chart-header">
+        <div class="chart-tabs">
+          <button type="button" class="chart-tab active" id="tabBacktestChart">Chart Backtest + Marker News (H4 WIB)</button>
+          <button type="button" class="chart-tab" id="tabLiveTvChart">Live Chart TradingView (OANDA:XAUUSD H4)</button>
+        </div>
+        <div class="chart-focus-info" id="chartFocusInfo">Klik baris tabel di bawah untuk melihat garis Entry, TP, dan SL di chart</div>
+      </div>
+
+      <div id="paneBacktestChart">
+        <div id="macroCandleChart" style="width:100%;height:360px;"></div>
+      </div>
+
+      <div id="paneLiveTvChart" style="display:none;">
+        <iframe
+          src="https://s.tradingview.com/widgetembed/?symbol=OANDA%3AXAUUSD&interval=240&hidesidetoolbar=0&symboledit=1&saveimage=0&toolbarbg=0b0f17&studies=%5B%5D&theme=dark&style=1&timezone=Asia%2FJakarta"
+          style="width:100%;height:420px;border:none;border-radius:6px;"
+          allowtransparency="true"
+          scrolling="no">
+        </iframe>
+      </div>
+    </div>
+
     <div class="status-bar" id="statusBanner">Siap menjalankan simulasi...</div>
 
     <div class="table-wrap">
@@ -197,14 +253,14 @@
             <th>#</th>
             <th>Waktu Rilis (WIB)</th>
             <th>Indikator</th>
-            <th>Data (Prev vs Act)</th>
+            <th>Data (Prev / Fcst / Act)</th>
             <th>Status News</th>
             <th>Aturan Bulanan (2/3 & Tetap)</th>
             <th>Arah Eksekusi</th>
             <th>Close Pullback H4</th>
             <th>Entry</th>
-            <th>TP (+400)</th>
-            <th>SL (-200)</th>
+            <th>TP</th>
+            <th>SL</th>
             <th>Hasil</th>
           </tr>
         </thead>
@@ -213,6 +269,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/modules/xau-strategy-dashboard.js"></script>
+  <script src="/js/modules/xau-strategy-dashboard.js"></script>
 </body>
 </html>
