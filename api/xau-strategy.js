@@ -20,6 +20,7 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
       newsCandleTimeSec: null,
       impulseCloseWIB: '-',
       entryCandleTimeSec: null,
+      exitCandleTimeSec: null,
       tradeStatus: 'NO_PRICE_DATA',
       pullbackCloseWIB: '-',
       entryPrice: null,
@@ -31,7 +32,6 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
     };
   }
 
-  // Temukan candle H4 yang sedang aktif saat jam rilis berita WIB (misal 20:30 WIB berada di sesi H4 20:00 WIB)
   const newsCandleIdx = candles.findIndex(c => c.closeTime > newsUtcMs);
   if (newsCandleIdx === -1) {
     return {
@@ -39,6 +39,7 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
       newsCandleTimeSec: null,
       impulseCloseWIB: '-',
       entryCandleTimeSec: null,
+      exitCandleTimeSec: null,
       tradeStatus: 'NO_FUTURE_CANDLE',
       pullbackCloseWIB: '-',
       entryPrice: null,
@@ -53,19 +54,15 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
   const newsCandle = candles[newsCandleIdx];
   const searchLimit = Math.min(candles.length, newsCandleIdx + 1 + maxWaitCandles);
 
-  // TAHAP 1: Tunggu penutupan candle H4 yang SEARAH dengan tren news (Bullish/Hijau untuk BUY, Bearish/Merah untuk SELL)
-  // Pengecekan dimulai dari penutupan candle saat rilis berita (newsCandleIdx) atau candle H4 berikutnya
+  // TAHAP 1: Tunggu penutupan candle H4 searah tren news (Bullish/Hijau untuk BUY, Bearish/Merah untuk SELL)
   let impulseCandleIdx = -1;
   for (let i = newsCandleIdx; i < searchLimit; i++) {
     const c = candles[i];
-    const isBullishClose = c.close > c.open;
-    const isBearishClose = c.close < c.open;
-
-    if (event.effectiveBias === 'BUY' && isBullishClose) {
+    if (event.effectiveBias === 'BUY' && c.close > c.open) {
       impulseCandleIdx = i;
       break;
     }
-    if (event.effectiveBias === 'SELL' && isBearishClose) {
+    if (event.effectiveBias === 'SELL' && c.close < c.open) {
       impulseCandleIdx = i;
       break;
     }
@@ -77,6 +74,7 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
       newsCandleTimeSec: newsCandle.timeWibSec,
       impulseCloseWIB: '-',
       entryCandleTimeSec: null,
+      exitCandleTimeSec: null,
       tradeStatus: 'NO_IMPULSE_CONFIRM',
       pullbackCloseWIB: '-',
       entryPrice: null,
@@ -88,20 +86,17 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
     };
   }
 
-  // TAHAP 2: Setelah candle impuls searah tren tutup, tunggu 1 candle H4 BERLAWANAN arah (pullback) tutup penuh
+  // TAHAP 2: Tunggu 1 candle H4 pullback (berlawanan arah) tutup penuh
   let entryCandleIdx = -1;
   const pullbackLimit = Math.min(candles.length, impulseCandleIdx + 1 + maxWaitCandles);
 
   for (let j = impulseCandleIdx + 1; j < pullbackLimit; j++) {
     const c = candles[j];
-    const isBearishClose = c.close < c.open; // Candle koreksi merah untuk BUY
-    const isBullishClose = c.close > c.open; // Candle koreksi hijau untuk SELL
-
-    if (event.effectiveBias === 'BUY' && isBearishClose) {
+    if (event.effectiveBias === 'BUY' && c.close < c.open) {
       entryCandleIdx = j;
       break;
     }
-    if (event.effectiveBias === 'SELL' && isBullishClose) {
+    if (event.effectiveBias === 'SELL' && c.close > c.open) {
       entryCandleIdx = j;
       break;
     }
@@ -113,6 +108,7 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
       newsCandleTimeSec: newsCandle.timeWibSec,
       impulseCloseWIB: candles[impulseCandleIdx].closeWIB,
       entryCandleTimeSec: null,
+      exitCandleTimeSec: null,
       tradeStatus: 'NO_PULLBACK_CLOSE',
       pullbackCloseWIB: '-',
       entryPrice: null,
@@ -141,37 +137,38 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
   let outcome = 'OPEN';
   let pipsResult = 0;
   let exitWIB = 'Masih Berjalan';
+  let exitCandleTimeSec = candles[Math.min(candles.length - 1, entryCandleIdx + 15)].timeWibSec;
 
   for (let k = entryCandleIdx + 1; k < candles.length; k++) {
     const bar = candles[k];
     if (event.effectiveBias === 'BUY') {
-      const hitSL = bar.low <= slPrice;
-      const hitTP = bar.high >= tpPrice;
-      if (hitSL) {
+      if (bar.low <= slPrice) {
         outcome = 'LOSS';
         pipsResult = -slPips;
         exitWIB = bar.closeWIB;
+        exitCandleTimeSec = bar.timeWibSec;
         break;
       }
-      if (hitTP) {
+      if (bar.high >= tpPrice) {
         outcome = 'WIN';
         pipsResult = tpPips;
         exitWIB = bar.closeWIB;
+        exitCandleTimeSec = bar.timeWibSec;
         break;
       }
     } else {
-      const hitSL = bar.high >= slPrice;
-      const hitTP = bar.low <= tpPrice;
-      if (hitSL) {
+      if (bar.high >= slPrice) {
         outcome = 'LOSS';
         pipsResult = -slPips;
         exitWIB = bar.closeWIB;
+        exitCandleTimeSec = bar.timeWibSec;
         break;
       }
-      if (hitTP) {
+      if (bar.low <= tpPrice) {
         outcome = 'WIN';
         pipsResult = tpPips;
         exitWIB = bar.closeWIB;
+        exitCandleTimeSec = bar.timeWibSec;
         break;
       }
     }
@@ -183,6 +180,7 @@ function simulateTwoStepPullbackTrade(event, candles, { tpPips, slPips, pipSize,
     newsCandleSessionWIB: newsCandle.openWIB,
     impulseCloseWIB: impulseCandle.closeWIB,
     entryCandleTimeSec: entryCandle.timeWibSec,
+    exitCandleTimeSec,
     tradeStatus: 'EXECUTED',
     candleTF: 'H4',
     pullbackCloseWIB: entryCandle.closeWIB,
@@ -263,7 +261,7 @@ export default async function handler(req, res) {
     const fallbackCount = trades.filter(t => t.ruleApplied.includes('FALLBACK_PREV_MONTH')).length;
     const activeFeed = candles.length > 0 ? candles[candles.length - 1].feed : 'Tidak tersedia';
 
-    const chartCandles = candles.slice(-8000).map(c => ({
+    const chartCandles = candles.map(c => ({
       time: c.timeWibSec,
       open: c.open,
       high: c.high,

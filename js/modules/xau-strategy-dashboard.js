@@ -1,7 +1,125 @@
 let latestTrades = [];
+let loadedCandles = [];
 let chartInstance = null;
 let candleSeries = null;
+let positionBoxPrimitive = null;
 let activePriceLines = [];
+
+// Custom Primitive untuk menggambar Kotak TP (Hijau) & Kotak SL (Merah) persis seperti TradingView
+class TradingViewPositionBox {
+  constructor() {
+    this._box = null;
+    this._series = null;
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+
+  attached({ chart, series, requestUpdate }) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = null;
+  }
+
+  setBox(boxData) {
+    this._box = boxData;
+    if (this._requestUpdate) this._requestUpdate();
+  }
+
+  paneViews() {
+    return [
+      {
+        zOrder: () => 'bottom',
+        renderer: () => ({
+          draw: (target) => {
+            if (!this._box || !this._series || !this._chart) return;
+            target.useBitmapCoordinateSpace((scope) => {
+              const ctx = scope.context;
+              const hRatio = scope.horizontalPixelRatio;
+              const vRatio = scope.verticalPixelRatio;
+              const timeScale = this._chart.timeScale();
+
+              const x1Raw = timeScale.timeToCoordinate(this._box.startTime);
+              const x2Raw = timeScale.timeToCoordinate(this._box.endTime);
+              const yEntryRaw = this._series.priceToCoordinate(this._box.entry);
+              const yTpRaw = this._series.priceToCoordinate(this._box.tp);
+              const ySlRaw = this._series.priceToCoordinate(this._box.sl);
+
+              if (yEntryRaw === null || yTpRaw === null || ySlRaw === null) return;
+
+              const x1 = x1Raw !== null ? x1Raw * hRatio : 20 * hRatio;
+              const minBoxWidth = 64 * hRatio;
+              const x2 = x2Raw !== null
+                ? Math.max(x1 + minBoxWidth, x2Raw * hRatio)
+                : x1 + 140 * hRatio;
+              const boxWidth = x2 - x1;
+
+              const yEntry = yEntryRaw * vRatio;
+              const yTp = yTpRaw * vRatio;
+              const ySl = ySlRaw * vRatio;
+
+              ctx.save();
+
+              // 1. KOTAK HIJAU (Zona Take Profit: Entry <-> TP)
+              const tpTop = Math.min(yEntry, yTp);
+              const tpHeight = Math.max(4 * vRatio, Math.abs(yTp - yEntry));
+              ctx.fillStyle = 'rgba(46, 204, 113, 0.25)';
+              ctx.fillRect(x1, tpTop, boxWidth, tpHeight);
+              ctx.strokeStyle = '#2ecc71';
+              ctx.lineWidth = 1.5 * hRatio;
+              ctx.strokeRect(x1, tpTop, boxWidth, tpHeight);
+
+              // 2. KOTAK MERAH (Zona Stop Loss: Entry <-> SL)
+              const slTop = Math.min(yEntry, ySl);
+              const slHeight = Math.max(4 * vRatio, Math.abs(ySl - yEntry));
+              ctx.fillStyle = 'rgba(231, 76, 60, 0.25)';
+              ctx.fillRect(x1, slTop, boxWidth, slHeight);
+              ctx.strokeStyle = '#e74c3c';
+              ctx.lineWidth = 1.5 * hRatio;
+              ctx.strokeRect(x1, slTop, boxWidth, slHeight);
+
+              // 3. GARIS PEMISAH ENTRY (Biru Terang)
+              ctx.strokeStyle = '#38bdf8';
+              ctx.lineWidth = 2 * hRatio;
+              ctx.beginPath();
+              ctx.moveTo(x1, yEntry);
+              ctx.lineTo(x1 + boxWidth, yEntry);
+              ctx.stroke();
+
+              // 4. Label Teks di dalam Kotak TP & SL
+              const fontSize = Math.round(11 * vRatio);
+              ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
+              const padX = 6 * hRatio;
+
+              if (tpHeight > fontSize + 4 * vRatio) {
+                ctx.fillStyle = '#55efc4';
+                const tpLabelY = this._box.bias === 'BUY'
+                  ? tpTop + fontSize + 3 * vRatio
+                  : tpTop + tpHeight - 5 * vRatio;
+                ctx.fillText(`TP ${this._box.tp.toFixed(2)}`, x1 + padX, tpLabelY);
+              }
+
+              if (slHeight > fontSize + 4 * vRatio) {
+                ctx.fillStyle = '#ff7675';
+                const slLabelY = this._box.bias === 'BUY'
+                  ? slTop + slHeight - 5 * vRatio
+                  : slTop + fontSize + 3 * vRatio;
+                ctx.fillText(`SL ${this._box.sl.toFixed(2)}`, x1 + padX, slLabelY);
+              }
+
+              ctx.restore();
+            });
+          }
+        })
+      }
+    ];
+  }
+}
 
 function initInteractiveChart() {
   const container = document.getElementById('macroCandleChart');
@@ -10,7 +128,7 @@ function initInteractiveChart() {
   container.innerHTML = '';
   chartInstance = LightweightCharts.createChart(container, {
     width: container.clientWidth,
-    height: 360,
+    height: 380,
     layout: {
       background: { color: '#0d131f' },
       textColor: '#cbd5e1'
@@ -23,7 +141,8 @@ function initInteractiveChart() {
       mode: LightweightCharts.CrosshairMode.Normal
     },
     rightPriceScale: {
-      borderColor: '#233044'
+      borderColor: '#233044',
+      scaleMargins: { top: 0.12, bottom: 0.12 }
     },
     timeScale: {
       borderColor: '#233044',
@@ -40,11 +159,28 @@ function initInteractiveChart() {
     wickDownColor: '#e74c3c'
   });
 
+  positionBoxPrimitive = new TradingViewPositionBox();
+  candleSeries.attachPrimitive(positionBoxPrimitive);
+
   window.addEventListener('resize', () => {
     if (chartInstance && container.clientWidth > 0) {
       chartInstance.applyOptions({ width: container.clientWidth });
     }
   });
+}
+
+function snapToNearestCandleTime(targetSec) {
+  if (!loadedCandles.length || !targetSec) return targetSec;
+  let best = loadedCandles[0].time;
+  let minDiff = Math.abs(best - targetSec);
+  for (let i = 1; i < loadedCandles.length; i++) {
+    const diff = Math.abs(loadedCandles[i].time - targetSec);
+    if (diff < minDiff) {
+      minDiff = diff;
+      best = loadedCandles[i].time;
+    }
+  }
+  return best;
 }
 
 function renderChartData(candles, trades) {
@@ -55,18 +191,19 @@ function renderChartData(candles, trades) {
   for (const c of candles) {
     uniqueMap.set(c.time, c);
   }
-  const cleanCandles = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
-  candleSeries.setData(cleanCandles);
+  loadedCandles = Array.from(uniqueMap.values()).sort((a, b) => a.time - b.time);
+  candleSeries.setData(loadedCandles);
 
-  const minTime = cleanCandles[0].time;
-  const maxTime = cleanCandles[cleanCandles.length - 1].time;
+  const minTime = loadedCandles[0].time;
+  const maxTime = loadedCandles[loadedCandles.length - 1].time;
 
   const rawMarkers = [];
   for (const t of trades) {
     if (t.newsCandleTimeSec && t.newsCandleTimeSec >= minTime && t.newsCandleTimeSec <= maxTime) {
+      const snappedTime = snapToNearestCandleTime(t.newsCandleTimeSec);
       const isBuy = t.effectiveBias === 'BUY';
       rawMarkers.push({
-        time: t.newsCandleTimeSec,
+        time: snappedTime,
         position: isBuy ? 'belowBar' : 'aboveBar',
         color: isBuy ? '#2ecc71' : '#e74c3c',
         shape: isBuy ? 'arrowUp' : 'arrowDown',
@@ -78,19 +215,16 @@ function renderChartData(candles, trades) {
   rawMarkers.sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(rawMarkers);
 
-  // Tampilkan 120 candle H4 terakhir agar jelas di layar HP (tidak terlalu rapat)
-  const total = cleanCandles.length;
-  if (total > 120) {
-    chartInstance.timeScale().setVisibleRange({
-      from: cleanCandles[total - 120].time,
-      to: cleanCandles[total - 1].time + 4 * 3600
-    });
+  // Otomatis tampilkan kotak TP/SL pada transaksi tereksekusi pertama/terbaru agar langsung terlihat
+  const firstExecutedIdx = trades.findIndex(t => t.entryPrice !== null);
+  if (firstExecutedIdx !== -1) {
+    focusTradeOnChart(firstExecutedIdx, false);
   } else {
     chartInstance.timeScale().fitContent();
   }
 }
 
-function focusTradeOnChart(index) {
+function focusTradeOnChart(index, shouldScroll = true) {
   const t = latestTrades[index];
   if (!t || !chartInstance || !candleSeries) return;
 
@@ -99,23 +233,38 @@ function focusTradeOnChart(index) {
   }
   activePriceLines = [];
 
-  if (t.entryPrice !== null) {
+  if (t.entryPrice !== null && t.entryCandleTimeSec) {
+    const startSec = snapToNearestCandleTime(t.entryCandleTimeSec);
+    const endSec = snapToNearestCandleTime(t.exitCandleTimeSec || t.entryCandleTimeSec);
+
+    if (positionBoxPrimitive) {
+      positionBoxPrimitive.setBox({
+        startTime: startSec,
+        endTime: endSec,
+        entry: t.entryPrice,
+        tp: t.tpPrice,
+        sl: t.slPrice,
+        bias: t.effectiveBias,
+        outcome: t.outcome
+      });
+    }
+
     activePriceLines.push(
-      candleSeries.createPriceLine({
-        price: t.entryPrice,
-        color: '#3498db',
-        lineWidth: 2,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: `ENTRY ${t.effectiveBias}`
-      }),
       candleSeries.createPriceLine({
         price: t.tpPrice,
         color: '#2ecc71',
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: 'TP'
+        title: `TP (${t.effectiveBias})`
+      }),
+      candleSeries.createPriceLine({
+        price: t.entryPrice,
+        color: '#38bdf8',
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `ENTRY ${t.effectiveBias}`
       }),
       candleSeries.createPriceLine({
         price: t.slPrice,
@@ -126,22 +275,31 @@ function focusTradeOnChart(index) {
         title: 'SL'
       })
     );
+  } else if (positionBoxPrimitive) {
+    positionBoxPrimitive.setBox(null);
   }
 
-  const centerSec = t.entryCandleTimeSec || t.newsCandleTimeSec;
-  if (centerSec) {
-    chartInstance.timeScale().setVisibleRange({
-      from: centerSec - 20 * 4 * 3600,
-      to: centerSec + 30 * 4 * 3600
-    });
+  const centerSec = snapToNearestCandleTime(t.entryCandleTimeSec || t.newsCandleTimeSec);
+  if (centerSec && loadedCandles.length > 0) {
+    const idx = loadedCandles.findIndex(c => c.time === centerSec);
+    if (idx !== -1) {
+      const fromIdx = Math.max(0, idx - 18);
+      const toIdx = Math.min(loadedCandles.length - 1, idx + 32);
+      chartInstance.timeScale().setVisibleRange({
+        from: loadedCandles[fromIdx].time,
+        to: loadedCandles[toIdx].time
+      });
+    }
   }
 
   const infoEl = document.getElementById('chartFocusInfo');
   if (infoEl) {
-    infoEl.textContent = `Fokus H4: Rilis ${t.dateISO} ${t.timeWIB} WIB (Sesi H4 ${t.newsCandleSessionWIB || '-'}) | Impuls Close: ${t.impulseCloseWIB || '-'} | Pullback Entry: ${t.pullbackCloseWIB} @ ${t.entryPrice ?? '-'} (${t.outcome})`;
+    infoEl.textContent = `Fokus Posisi: ${t.dateISO} ${t.timeWIB} WIB | ${t.code} -> ${t.effectiveBias} @ ${t.entryPrice ?? '-'} | TP: ${t.tpPrice ?? '-'} (Kotak Hijau) | SL: ${t.slPrice ?? '-'} (Kotak Merah) | Hasil: ${t.outcome}`;
   }
 
-  document.getElementById('chartSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (shouldScroll) {
+    document.getElementById('chartSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 function badgeRule(ruleApplied) {
@@ -177,7 +335,7 @@ function renderTable(trades) {
     const pipsText = t.outcome === 'WIN' || t.outcome === 'LOSS' ? `${t.pipsResult > 0 ? '+' : ''}${t.pipsResult}` : '-';
 
     return `
-      <tr class="clickable-row" data-idx="${idx}" title="Klik untuk fokus posisi ini di chart H4">
+      <tr class="clickable-row" data-idx="${idx}" title="Klik untuk menampilkan kotak TP hijau & SL merah posisi ini">
         <td>${idx + 1}</td>
         <td><strong>${t.dateISO}</strong><br><small>${t.timeWIB || '-'} WIB</small></td>
         <td><span class="code-pill">${t.code}</span><br><small>Ke-${t.orderInMonth}/${t.totalInMonth}</small></td>
@@ -191,8 +349,8 @@ function renderTable(trades) {
           <small>TF: H4</small>
         </td>
         <td>${t.entryPrice !== null ? t.entryPrice.toFixed(2) : '-'}</td>
-        <td>${t.tpPrice !== null ? t.tpPrice.toFixed(2) : '-'}</td>
-        <td>${t.slPrice !== null ? t.slPrice.toFixed(2) : '-'}</td>
+        <td class="text-green">${t.tpPrice !== null ? t.tpPrice.toFixed(2) : '-'}</td>
+        <td class="text-red">${t.slPrice !== null ? t.slPrice.toFixed(2) : '-'}</td>
         <td class="${outcomeClass}"><strong>${t.outcome}</strong><br><small>${pipsText} pips</small></td>
       </tr>
     `;
@@ -201,7 +359,7 @@ function renderTable(trades) {
   tbody.querySelectorAll('.clickable-row').forEach(row => {
     row.addEventListener('click', () => {
       const idx = Number(row.getAttribute('data-idx'));
-      focusTradeOnChart(idx);
+      focusTradeOnChart(idx, true);
     });
   });
 }
@@ -220,8 +378,8 @@ async function runStrategyBacktest() {
   const statusEl = document.getElementById('statusBanner');
 
   btn.disabled = true;
-  btn.textContent = 'Memuat Candle H4...';
-  statusEl.textContent = 'Menarik kalender FXStreet + TradingView & candle H4 XAUUSD (2015–2026)...';
+  btn.textContent = 'Memuat Chart H4...';
+  statusEl.textContent = 'Menarik kalender FXStreet + TradingView & candle Spot XAU/USD H4 murni...';
 
   try {
     const params = new URLSearchParams({
@@ -244,7 +402,7 @@ async function runStrategyBacktest() {
     renderTable(latestTrades);
     renderChartData(data.chartCandles || [], latestTrades);
 
-    statusEl.textContent = `Selesai: ${data.summary.totalSignals} rilis berita (${startYear}–${endYear}) | Feed Chart: ${data.activeFeed} (${data.totalH4Candles} candle H4) | Klik baris tabel untuk melihat detail Entry di chart.`;
+    statusEl.textContent = `Selesai: ${data.summary.totalSignals} rilis berita (${startYear}–${endYear}) | Feed: ${data.activeFeed} (${data.totalH4Candles} candle H4 murni) | Klik baris tabel untuk memindahkan kotak posisi TP/SL di chart.`;
   } catch (err) {
     statusEl.textContent = `Error: ${err.message}`;
   } finally {
@@ -297,7 +455,7 @@ function exportStrategyCsv() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `xauusd-macro-h4-2step-backtest.csv`;
+  a.download = `xauusd-macro-h4-position-box-backtest.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
